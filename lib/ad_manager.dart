@@ -20,6 +20,24 @@ class AdManager {
     return 'ca-app-pub-3940256099942544/6300978111'; // Default test ad
   }
 
+  static String get interstitialAdUnitId {
+    if (kIsWeb) {
+      return 'ca-app-pub-3940256099942544/1033173712'; // Web test ad
+    }
+    
+    if (kDebugMode) {
+      return 'ca-app-pub-3940256099942544/1033173712'; // Test ad unit ID
+    }
+    
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return 'ca-app-pub-8148356110096114/1234567890'; // Android interstitial (placeholder)
+    } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return 'ca-app-pub-8148356110096114/1234567890'; // iOS interstitial (placeholder)
+    }
+    
+    return 'ca-app-pub-3940256099942544/1033173712'; // Default test ad
+  }
+
   static String get rewardedAdUnitId {
     if (kIsWeb) {
       return 'ca-app-pub-3940256099942544/5224354917'; // Web test ad
@@ -91,6 +109,56 @@ class AdManager {
     );
   }
 
+  // Interstitial Ad
+  static InterstitialAd? _interstitialAd;
+  static bool _isInterstitialAdReady = false;
+
+  static Future<void> loadInterstitialAd() async {
+    if (kIsWeb) {
+      _isInterstitialAdReady = true; // Dummy for web
+      return;
+    }
+    
+    await InterstitialAd.load(
+      adUnitId: interstitialAdUnitId,
+      request: const AdRequest(),
+      adLoadCallback: InterstitialAdLoadCallback(
+        onAdLoaded: (ad) {
+          _interstitialAd = ad;
+          _isInterstitialAdReady = true;
+          print('Interstitial ad loaded successfully');
+        },
+        onAdFailedToLoad: (error) {
+          _interstitialAd = null;
+          _isInterstitialAdReady = false;
+          print('Interstitial ad failed to load: $error');
+        },
+      ),
+    );
+  }
+
+  static bool get isInterstitialAdReady => _isInterstitialAdReady;
+
+  static Future<void> showInterstitialAd() async {
+    if (kIsWeb) {
+      // Dummy for web
+      await Future.delayed(const Duration(seconds: 2));
+      return;
+    }
+    
+    if (!_isInterstitialAdReady || _interstitialAd == null) {
+      return;
+    }
+
+    await _interstitialAd!.show();
+    _interstitialAd = null;
+    _isInterstitialAdReady = false;
+    
+    // Load the next ad
+    loadInterstitialAd();
+  }
+
+  // Rewarded Ad
   static RewardedAd? _rewardedAd;
   static bool _isRewardedAdReady = false;
 
@@ -151,5 +219,6 @@ class AdManager {
 
   static void dispose() {
     _rewardedAd?.dispose();
+    _interstitialAd?.dispose();
   }
 } 

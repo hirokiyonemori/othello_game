@@ -56,6 +56,7 @@ class _GameModeSelectionState extends State<GameModeSelection> {
     super.initState();
     _loadBannerAd();
     AdManager.loadRewardedAd();
+    AdManager.loadInterstitialAd();
   }
 
   void _loadBannerAd() {
@@ -72,6 +73,7 @@ class _GameModeSelectionState extends State<GameModeSelection> {
   @override
   void dispose() {
     _bannerAd?.dispose();
+    PurchaseManager.dispose();
     super.dispose();
   }
 
@@ -111,12 +113,7 @@ class _GameModeSelectionState extends State<GameModeSelection> {
                     '友達と一緒にプレイ',
                     Icons.people,
                     Colors.blue,
-                    () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const OthelloGame(isNPC: false),
-                      ),
-                    ),
+                    () => _navigateToGame(false),
                   ),
                   const SizedBox(height: 20),
                   _buildModeButton(
@@ -125,12 +122,7 @@ class _GameModeSelectionState extends State<GameModeSelection> {
                     'AIと対戦（難易度選択）',
                     Icons.computer,
                     Colors.orange,
-                    () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const DifficultySelection(),
-                      ),
-                    ),
+                    () => _navigateToGame(true),
                   ),
                 ],
               ),
@@ -251,6 +243,35 @@ class _GameModeSelectionState extends State<GameModeSelection> {
         ),
       ),
     );
+  }
+
+  void _navigateToGame(bool isNPC) {
+    // ゲーム開始時にインタースティシャル広告を表示
+    if (!PurchaseManager.isPurchased && AdManager.isInterstitialAdReady) {
+      AdManager.showInterstitialAd().then((_) {
+        _navigateToGameScreen(isNPC);
+      });
+    } else {
+      _navigateToGameScreen(isNPC);
+    }
+  }
+
+  void _navigateToGameScreen(bool isNPC) {
+    if (isNPC) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const DifficultySelection(),
+        ),
+      );
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const OthelloGame(isNPC: false),
+        ),
+      );
+    }
   }
 }
 
@@ -563,10 +584,8 @@ class _OthelloGameState extends State<OthelloGame> {
           winner = '引き分け！';
         }
         
-        // ゲーム終了時にリワード広告を表示
-        if (!PurchaseManager.isPurchased) {
-          _showGameEndDialog();
-        }
+        // ゲーム終了時に広告を表示
+        _showGameEndAds();
       }
     }
     
@@ -1062,39 +1081,49 @@ class _OthelloGameState extends State<OthelloGame> {
     );
   }
 
-  void _showGameEndDialog() {
-    Future.delayed(const Duration(milliseconds: 1000), () {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          title: const Text('ゲーム終了'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                winner,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
+  void _showGameEndAds() {
+    Future.delayed(const Duration(milliseconds: 1000), () async {
+      // まずインタースティシャル広告を表示
+      if (AdManager.isInterstitialAdReady) {
+        await AdManager.showInterstitialAd();
+      }
+      
+      // その後リワード広告ダイアログを表示
+      _showRewardedAdDialog();
+    });
+  }
+
+  void _showRewardedAdDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('ゲーム終了'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              winner,
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
               ),
-              const SizedBox(height: 16),
-              const Text('リワード広告を見てボーナスを獲得しませんか？'),
-            ],
-          ),
-          actions: [
-            ElevatedButton(
-              onPressed: () async {
-                Navigator.pop(context);
-                await _showRewardedAd();
-              },
-              child: const Text('広告を見る'),
             ),
+            const SizedBox(height: 16),
+            const Text('リワード広告を見てボーナスを獲得しませんか？'),
           ],
         ),
-      );
-    });
+        actions: [
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _showRewardedAd();
+            },
+            child: const Text('広告を見る'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _showRewardedAd() async {
