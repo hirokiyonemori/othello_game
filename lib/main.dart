@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'ad_manager.dart';
+import 'purchase_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -8,6 +12,15 @@ void main() async {
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
+  
+  // Initialize AdMob only on mobile platforms
+  if (!kIsWeb) {
+    await MobileAds.instance.initialize();
+  }
+  
+  // Initialize purchase manager
+  await PurchaseManager.initialize();
+  
   runApp(const OthelloApp());
 }
 
@@ -27,8 +40,40 @@ class OthelloApp extends StatelessWidget {
   }
 }
 
-class GameModeSelection extends StatelessWidget {
+class GameModeSelection extends StatefulWidget {
   const GameModeSelection({super.key});
+
+  @override
+  State<GameModeSelection> createState() => _GameModeSelectionState();
+}
+
+class _GameModeSelectionState extends State<GameModeSelection> {
+  BannerAd? _bannerAd;
+  bool _isAdLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBannerAd();
+    AdManager.loadRewardedAd();
+  }
+
+  void _loadBannerAd() {
+    if (!PurchaseManager.isPurchased) {
+      _bannerAd = AdManager.createBannerAd();
+      _bannerAd!.load().then((_) {
+        setState(() {
+          _isAdLoaded = true;
+        });
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _bannerAd?.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -36,50 +81,130 @@ class GameModeSelection extends StatelessWidget {
       appBar: AppBar(
         title: const Text('オセロゲーム'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        actions: [
+          if (!PurchaseManager.isPurchased)
+            IconButton(
+              icon: const Icon(Icons.remove_circle_outline),
+              onPressed: _showPurchaseDialog,
+              tooltip: '広告を削除',
+            ),
+        ],
       ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+      body: Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text(
+                    'プレイモードを選択してください',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 40),
+                  _buildModeButton(
+                    context,
+                    '二人プレイ',
+                    '友達と一緒にプレイ',
+                    Icons.people,
+                    Colors.blue,
+                    () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const OthelloGame(isNPC: false),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  _buildModeButton(
+                    context,
+                    'NPCプレイ',
+                    'AIと対戦（難易度選択）',
+                    Icons.computer,
+                    Colors.orange,
+                    () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const DifficultySelection(),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // Banner Ad
+          if (!PurchaseManager.isPurchased && _isAdLoaded && _bannerAd != null)
+            Container(
+              width: _bannerAd!.size.width.toDouble(),
+              height: _bannerAd!.size.height.toDouble(),
+              child: AdWidget(ad: _bannerAd!),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showPurchaseDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('広告を削除'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'プレイモードを選択してください',
-              style: TextStyle(
-                fontSize: 24,
+            const Text('広告を完全に削除して、快適にゲームを楽しみませんか？'),
+            const SizedBox(height: 16),
+            Text(
+              '価格: ${PurchaseManager.getPrice()}',
+              style: const TextStyle(
+                fontSize: 18,
                 fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 40),
-            _buildModeButton(
-              context,
-              '二人プレイ',
-              '友達と一緒にプレイ',
-              Icons.people,
-              Colors.blue,
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const OthelloGame(isNPC: false),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            _buildModeButton(
-              context,
-              'NPCプレイ',
-              'AIと対戦（難易度選択）',
-              Icons.computer,
-              Colors.orange,
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const DifficultySelection(),
-                ),
+                color: Colors.green,
               ),
             ),
           ],
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _purchaseRemoveAds();
+            },
+            child: const Text('購入'),
+          ),
+        ],
       ),
     );
+  }
+
+  Future<void> _purchaseRemoveAds() async {
+    try {
+      final success = await PurchaseManager.purchaseRemoveAds();
+      if (success) {
+        setState(() {
+          // Refresh UI
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('購入が完了しました！')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('購入に失敗しました。')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('エラーが発生しました: $e')),
+      );
+    }
   }
 
   Widget _buildModeButton(
@@ -436,6 +561,11 @@ class _OthelloGameState extends State<OthelloGame> {
           winner = '白の勝ち！';
         } else {
           winner = '引き分け！';
+        }
+        
+        // ゲーム終了時にリワード広告を表示
+        if (!PurchaseManager.isPurchased) {
+          _showGameEndDialog();
         }
       }
     }
@@ -930,6 +1060,62 @@ class _OthelloGameState extends State<OthelloGame> {
         shape: BoxShape.circle,
       ),
     );
+  }
+
+  void _showGameEndDialog() {
+    Future.delayed(const Duration(milliseconds: 1000), () {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('ゲーム終了'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                winner,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('リワード広告を見てボーナスを獲得しませんか？'),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                await _showRewardedAd();
+              },
+              child: const Text('広告を見る'),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
+  Future<void> _showRewardedAd() async {
+    if (AdManager.isRewardedAdReady) {
+      final rewardEarned = await AdManager.showRewardedAd();
+      if (rewardEarned) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ボーナスを獲得しました！'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('広告の読み込みに失敗しました。'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
   }
 }
 
