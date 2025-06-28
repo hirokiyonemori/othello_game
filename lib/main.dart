@@ -15,13 +15,117 @@ class OthelloApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
         useMaterial3: true,
       ),
-      home: const OthelloGame(),
+      home: const GameModeSelection(),
+    );
+  }
+}
+
+class GameModeSelection extends StatelessWidget {
+  const GameModeSelection({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('オセロゲーム'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              'プレイモードを選択してください',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 40),
+            _buildModeButton(
+              context,
+              '二人プレイ',
+              '友達と一緒にプレイ',
+              Icons.people,
+              Colors.blue,
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const OthelloGame(isNPC: false),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            _buildModeButton(
+              context,
+              'NPCプレイ',
+              'コンピュータと対戦',
+              Icons.computer,
+              Colors.orange,
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const OthelloGame(isNPC: true),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModeButton(
+    BuildContext context,
+    String title,
+    String subtitle,
+    IconData icon,
+    Color color,
+    VoidCallback onPressed,
+  ) {
+    return Container(
+      width: 300,
+      height: 120,
+      child: ElevatedButton(
+        onPressed: onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color.withOpacity(0.1),
+          foregroundColor: color,
+          side: BorderSide(color: color, width: 2),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 40),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 14,
+                color: color.withOpacity(0.8),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
 
 class OthelloGame extends StatefulWidget {
-  const OthelloGame({super.key});
+  final bool isNPC;
+  
+  const OthelloGame({super.key, required this.isNPC});
 
   @override
   State<OthelloGame> createState() => _OthelloGameState();
@@ -139,6 +243,77 @@ class _OthelloGameState extends State<OthelloGame> {
         }
       }
     }
+    
+    // NPCプレイの場合、NPCの手番を実行
+    if (widget.isNPC && currentPlayer == 2 && !gameOver) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        makeNPCMove();
+      });
+    }
+  }
+
+  void makeNPCMove() {
+    if (gameOver) return;
+    
+    List<List<int>> validMoves = [];
+    for (int i = 0; i < boardSize; i++) {
+      for (int j = 0; j < boardSize; j++) {
+        if (isValidMove(i, j)) {
+          validMoves.add([i, j]);
+        }
+      }
+    }
+    
+    if (validMoves.isNotEmpty) {
+      // 最も多くの石を取れる手を選択（貪欲法）
+      List<int> bestMove = validMoves[0];
+      int maxFlips = 0;
+      
+      for (var move in validMoves) {
+        int flips = countFlips(move[0], move[1]);
+        if (flips > maxFlips) {
+          maxFlips = flips;
+          bestMove = move;
+        }
+      }
+      
+      setState(() {
+        makeMove(bestMove[0], bestMove[1]);
+      });
+    }
+  }
+
+  int countFlips(int row, int col) {
+    if (!isValidMove(row, col)) return 0;
+    
+    int totalFlips = 0;
+    List<List<int>> directions = [
+      [-1, -1], [-1, 0], [-1, 1],
+      [0, -1],           [0, 1],
+      [1, -1],  [1, 0],  [1, 1]
+    ];
+
+    for (var direction in directions) {
+      totalFlips += countFlipsInDirection(row, col, direction[0], direction[1]);
+    }
+    
+    return totalFlips;
+  }
+
+  int countFlipsInDirection(int row, int col, int dRow, int dCol) {
+    if (!canFlip(row, col, dRow, dCol)) return 0;
+    
+    int flips = 0;
+    int newRow = row + dRow;
+    int newCol = col + dCol;
+    
+    while (board[newRow][newCol] != currentPlayer) {
+      flips++;
+      newRow += dRow;
+      newCol += dCol;
+    }
+    
+    return flips;
   }
 
   void flipStones(int row, int col, int dRow, int dCol) {
@@ -181,13 +356,18 @@ class _OthelloGameState extends State<OthelloGame> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('オセロゲーム'),
+        title: Text(widget.isNPC ? 'オセロゲーム (NPC対戦)' : 'オセロゲーム (二人プレイ)'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: resetGame,
             tooltip: 'リセット',
+          ),
+          IconButton(
+            icon: const Icon(Icons.home),
+            onPressed: () => Navigator.pop(context),
+            tooltip: 'ホーム',
           ),
         ],
       ),
@@ -278,9 +458,10 @@ class _OthelloGameState extends State<OthelloGame> {
   Widget _buildCell(int row, int col) {
     int cellValue = board[row][col];
     bool isValid = isValidMove(row, col);
+    bool isNPCTurn = widget.isNPC && currentPlayer == 2;
     
     return GestureDetector(
-      onTap: gameOver ? null : () {
+      onTap: (gameOver || isNPCTurn) ? null : () {
         setState(() {
           makeMove(row, col);
         });
