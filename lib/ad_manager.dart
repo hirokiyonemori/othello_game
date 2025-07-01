@@ -1,7 +1,56 @@
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AdManager {
+  static const String _rewardedAdWatchedDateKey = 'rewarded_ad_watched_date';
+  static bool _isAdFreeToday = false;
+
+  // その日のリワード広告視聴状態をチェック
+  static Future<void> checkAdFreeStatus() async {
+    if (kIsWeb) return;
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final lastWatchedDate = prefs.getString(_rewardedAdWatchedDateKey);
+      
+      if (lastWatchedDate != null) {
+        final lastWatched = DateTime.parse(lastWatchedDate);
+        final today = DateTime.now();
+        
+        // 同じ日かチェック（年、月、日が同じ）
+        _isAdFreeToday = lastWatched.year == today.year &&
+                        lastWatched.month == today.month &&
+                        lastWatched.day == today.day;
+      } else {
+        _isAdFreeToday = false;
+      }
+    } catch (e) {
+      print('Error checking ad free status: $e');
+      _isAdFreeToday = false;
+    }
+  }
+
+  // リワード広告視聴完了時の処理
+  static Future<void> markRewardedAdWatched() async {
+    if (kIsWeb) return;
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final today = DateTime.now().toIso8601String();
+      await prefs.setString(_rewardedAdWatchedDateKey, today);
+      _isAdFreeToday = true;
+    } catch (e) {
+      print('Error marking rewarded ad as watched: $e');
+    }
+  }
+
+  // その日広告を表示するかどうか
+  static bool get shouldShowAds {
+    if (kIsWeb) return false;
+    return !_isAdFreeToday;
+  }
+
   static String get bannerAdUnitId {
     if (kIsWeb) {
       return 'ca-app-pub-3940256099942544/6300978111'; // Web test ad
@@ -114,8 +163,8 @@ class AdManager {
   static bool _isInterstitialAdReady = false;
 
   static Future<void> loadInterstitialAd() async {
-    if (kIsWeb) {
-      _isInterstitialAdReady = true; // Dummy for web
+    if (kIsWeb || !shouldShowAds) {
+      _isInterstitialAdReady = true; // Dummy for web or ad-free day
       return;
     }
     
@@ -140,8 +189,8 @@ class AdManager {
   static bool get isInterstitialAdReady => _isInterstitialAdReady;
 
   static Future<void> showInterstitialAd() async {
-    if (kIsWeb) {
-      // Dummy for web
+    if (kIsWeb || !shouldShowAds) {
+      // Dummy for web or ad-free day
       await Future.delayed(const Duration(seconds: 2));
       return;
     }
@@ -192,6 +241,7 @@ class AdManager {
     if (kIsWeb) {
       // Dummy reward for web
       await Future.delayed(const Duration(seconds: 2));
+      await markRewardedAdWatched();
       return true;
     }
     
@@ -210,6 +260,11 @@ class AdManager {
 
     _rewardedAd = null;
     _isRewardedAdReady = false;
+    
+    // リワード広告視聴完了を記録
+    if (rewardEarned) {
+      await markRewardedAdWatched();
+    }
     
     // Load the next ad
     loadRewardedAd();

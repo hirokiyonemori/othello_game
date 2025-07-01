@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'ad_manager.dart';
-import 'purchase_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,10 +15,8 @@ void main() async {
   // Initialize AdMob only on mobile platforms
   if (!kIsWeb) {
     await MobileAds.instance.initialize();
+    await AdManager.checkAdFreeStatus();
   }
-  
-  // Initialize purchase manager
-  await PurchaseManager.initialize();
   
   runApp(const OthelloApp());
 }
@@ -60,7 +57,7 @@ class _GameModeSelectionState extends State<GameModeSelection> {
   }
 
   void _loadBannerAd() {
-    if (!PurchaseManager.isPurchased) {
+    if (AdManager.shouldShowAds) {
       _bannerAd = AdManager.createBannerAd();
       _bannerAd!.load().then((_) {
         setState(() {
@@ -73,8 +70,36 @@ class _GameModeSelectionState extends State<GameModeSelection> {
   @override
   void dispose() {
     _bannerAd?.dispose();
-    PurchaseManager.dispose();
     super.dispose();
+  }
+
+  void _navigateToGame(bool isNPC) {
+    // ゲーム開始時にインタースティシャル広告を表示
+    if (AdManager.shouldShowAds && AdManager.isInterstitialAdReady) {
+      AdManager.showInterstitialAd().then((_) {
+        _navigateToGameScreen(isNPC);
+      });
+    } else {
+      _navigateToGameScreen(isNPC);
+    }
+  }
+
+  void _navigateToGameScreen(bool isNPC) {
+    if (isNPC) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const DifficultySelection(),
+        ),
+      );
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const OthelloGame(isNPC: false),
+        ),
+      );
+    }
   }
 
   @override
@@ -84,11 +109,11 @@ class _GameModeSelectionState extends State<GameModeSelection> {
         title: const Text('オセロゲーム'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
-          if (!PurchaseManager.isPurchased)
+          if (AdManager.shouldShowAds)
             IconButton(
-              icon: const Icon(Icons.remove_circle_outline),
-              onPressed: _showPurchaseDialog,
-              tooltip: '広告を削除',
+              icon: const Icon(Icons.visibility),
+              onPressed: _showRewardedAdDialog,
+              tooltip: 'リワード広告を見て今日の広告を削除',
             ),
         ],
       ),
@@ -129,7 +154,7 @@ class _GameModeSelectionState extends State<GameModeSelection> {
             ),
           ),
           // Banner Ad
-          if (!PurchaseManager.isPurchased && _isAdLoaded && _bannerAd != null)
+          if (AdManager.shouldShowAds && _isAdLoaded && _bannerAd != null)
             Container(
               width: _bannerAd!.size.width.toDouble(),
               height: _bannerAd!.size.height.toDouble(),
@@ -140,23 +165,21 @@ class _GameModeSelectionState extends State<GameModeSelection> {
     );
   }
 
-  void _showPurchaseDialog() {
+  void _showRewardedAdDialog() {
+    if (!AdManager.shouldShowAds) return;
+    
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('広告を削除'),
-        content: Column(
+        title: const Text('リワード広告'),
+        content: const Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('広告を完全に削除して、快適にゲームを楽しみませんか？'),
-            const SizedBox(height: 16),
+            Text('リワード広告を見ると、今日は広告が表示されなくなります。'),
+            SizedBox(height: 16),
             Text(
-              '価格: ${PurchaseManager.getPrice()}',
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.green,
-              ),
+              '広告を見ますか？',
+              style: TextStyle(fontWeight: FontWeight.bold),
             ),
           ],
         ),
@@ -168,28 +191,25 @@ class _GameModeSelectionState extends State<GameModeSelection> {
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(context);
-              await _purchaseRemoveAds();
+              await _showRewardedAd();
             },
-            child: const Text('購入'),
+            child: const Text('広告を見る'),
           ),
         ],
       ),
     );
   }
 
-  Future<void> _purchaseRemoveAds() async {
+  Future<void> _showRewardedAd() async {
     try {
-      final success = await PurchaseManager.purchaseRemoveAds();
-      if (success) {
-        setState(() {
-          // Refresh UI
-        });
+      final rewardEarned = await AdManager.showRewardedAd();
+      if (rewardEarned) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('購入が完了しました！')),
+          const SnackBar(content: Text('今日は広告が表示されません！')),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('購入に失敗しました。')),
+          const SnackBar(content: Text('広告の視聴に失敗しました。')),
         );
       }
     } catch (e) {
@@ -209,7 +229,7 @@ class _GameModeSelectionState extends State<GameModeSelection> {
   ) {
     return Container(
       width: 300,
-      height: 120,
+      height: 110,
       child: ElevatedButton(
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
@@ -223,55 +243,35 @@ class _GameModeSelectionState extends State<GameModeSelection> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 40),
-            const SizedBox(height: 8),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
+            Icon(icon, size: 36),
+            const SizedBox(height: 6),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
-            Text(
-              subtitle,
-              style: TextStyle(
-                fontSize: 14,
-                color: color.withOpacity(0.8),
+            const SizedBox(height: 4),
+            Flexible(
+              child: Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: color.withOpacity(0.8),
+                ),
+                textAlign: TextAlign.center,
+                overflow: TextOverflow.ellipsis,
+                maxLines: 2,
               ),
             ),
           ],
         ),
       ),
     );
-  }
-
-  void _navigateToGame(bool isNPC) {
-    // ゲーム開始時にインタースティシャル広告を表示
-    if (!PurchaseManager.isPurchased && AdManager.isInterstitialAdReady) {
-      AdManager.showInterstitialAd().then((_) {
-        _navigateToGameScreen(isNPC);
-      });
-    } else {
-      _navigateToGameScreen(isNPC);
-    }
-  }
-
-  void _navigateToGameScreen(bool isNPC) {
-    if (isNPC) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const DifficultySelection(),
-        ),
-      );
-    } else {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const OthelloGame(isNPC: false),
-        ),
-      );
-    }
   }
 }
 
@@ -301,7 +301,7 @@ class DifficultySelection extends StatelessWidget {
               child: GridView.builder(
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 2,
-                  childAspectRatio: 1.5,
+                  childAspectRatio: 1.2,
                   crossAxisSpacing: 16,
                   mainAxisSpacing: 16,
                 ),
@@ -340,35 +340,45 @@ class DifficultySelection extends StatelessWidget {
             ),
           ),
           child: Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.all(12.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(
-                  'レベル $difficulty',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    'レベル $difficulty',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  difficultyInfo.name,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w500,
+                const SizedBox(height: 6),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    difficultyInfo.name,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  difficultyInfo.description,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.white70,
+                Flexible(
+                  child: Text(
+                    difficultyInfo.description,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: Colors.white70,
+                    ),
+                    textAlign: TextAlign.center,
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 2,
                   ),
-                  textAlign: TextAlign.center,
                 ),
               ],
             ),
@@ -585,7 +595,9 @@ class _OthelloGameState extends State<OthelloGame> {
         }
         
         // ゲーム終了時に広告を表示
-        _showGameEndAds();
+        if (AdManager.shouldShowAds) {
+          _showGameEndAds();
+        }
       }
     }
     
@@ -902,6 +914,72 @@ class _OthelloGameState extends State<OthelloGame> {
     });
   }
 
+  void _showGameEndAds() {
+    Future.delayed(const Duration(milliseconds: 1000), () async {
+      // まずインタースティシャル広告を表示
+      if (AdManager.shouldShowAds && AdManager.isInterstitialAdReady) {
+        await AdManager.showInterstitialAd();
+      }
+      
+      // その後リワード広告ダイアログを表示
+      _showRewardedAdDialog();
+    });
+  }
+
+  void _showRewardedAdDialog() {
+    if (!AdManager.shouldShowAds) return;
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('リワード広告'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('リワード広告を見ると、今日は広告が表示されなくなります。'),
+            SizedBox(height: 16),
+            Text(
+              '広告を見ますか？',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _showRewardedAd();
+            },
+            child: const Text('広告を見る'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showRewardedAd() async {
+    try {
+      final rewardEarned = await AdManager.showRewardedAd();
+      if (rewardEarned) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('今日は広告が表示されません！')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('広告の視聴に失敗しました。')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('エラーが発生しました: $e')),
+      );
+    }
+  }
+
   String _getDifficultyName() {
     switch (widget.difficulty) {
       case 1: return '超初心者';
@@ -1080,72 +1158,6 @@ class _OthelloGameState extends State<OthelloGame> {
       ),
     );
   }
-
-  void _showGameEndAds() {
-    Future.delayed(const Duration(milliseconds: 1000), () async {
-      // まずインタースティシャル広告を表示
-      if (AdManager.isInterstitialAdReady) {
-        await AdManager.showInterstitialAd();
-      }
-      
-      // その後リワード広告ダイアログを表示
-      _showRewardedAdDialog();
-    });
-  }
-
-  void _showRewardedAdDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('ゲーム終了'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              winner,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text('リワード広告を見てボーナスを獲得しませんか？'),
-          ],
-        ),
-        actions: [
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _showRewardedAd();
-            },
-            child: const Text('広告を見る'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _showRewardedAd() async {
-    if (AdManager.isRewardedAdReady) {
-      final rewardEarned = await AdManager.showRewardedAd();
-      if (rewardEarned) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('ボーナスを獲得しました！'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('広告の読み込みに失敗しました。'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-    }
-  }
 }
 
 class MoveScore {
@@ -1153,4 +1165,4 @@ class MoveScore {
   final double score;
 
   MoveScore(this.move, this.score);
-}
+} 
