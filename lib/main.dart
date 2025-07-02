@@ -130,6 +130,7 @@ class OthelloApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'オセロゲーム',
+      debugShowCheckedModeBanner: false, // デバッグバナーを非表示
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
         useMaterial3: true,
