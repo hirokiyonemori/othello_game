@@ -16,6 +16,7 @@ void main() async {
   if (!kIsWeb) {
     await MobileAds.instance.initialize();
     await AdManager.checkAdFreeStatus();
+    await AdManager.updateLaunchCount();
   }
   
   runApp(const OthelloApp());
@@ -54,6 +55,13 @@ class _GameModeSelectionState extends State<GameModeSelection> {
     _loadBannerAd();
     AdManager.loadRewardedAd();
     AdManager.loadInterstitialAd();
+    
+    // 2回目の起動時にインタースティシャル広告を表示
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (AdManager.shouldShowInterstitialOnLaunch && AdManager.isInterstitialAdReady) {
+        AdManager.showInterstitialAd();
+      }
+    });
   }
 
   void _loadBannerAd() {
@@ -74,17 +82,16 @@ class _GameModeSelectionState extends State<GameModeSelection> {
   }
 
   void _navigateToGame(bool isNPC) {
-    // ゲーム開始時にインタースティシャル広告を表示
-    if (AdManager.shouldShowAds && AdManager.isInterstitialAdReady) {
-      AdManager.showInterstitialAd().then((_) {
-        _navigateToGameScreen(isNPC);
-      });
-    } else {
-      _navigateToGameScreen(isNPC);
-    }
+    _navigateToGameScreen(isNPC);
   }
 
-  void _navigateToGameScreen(bool isNPC) {
+  void _navigateToGameScreen(bool isNPC) async {
+    // ゲーム開始カウントを更新
+    await AdManager.updateGameStartCount();
+    // 5回目以降ならインタースティシャル広告を表示
+    if (AdManager.shouldShowInterstitialOnGameStart && AdManager.isInterstitialAdReady) {
+      await AdManager.showInterstitialAd();
+    }
     if (isNPC) {
       Navigator.push(
         context,
@@ -170,6 +177,7 @@ class _GameModeSelectionState extends State<GameModeSelection> {
     
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: const Text('リワード広告'),
         content: const Column(
@@ -275,9 +283,14 @@ class _GameModeSelectionState extends State<GameModeSelection> {
   }
 }
 
-class DifficultySelection extends StatelessWidget {
+class DifficultySelection extends StatefulWidget {
   const DifficultySelection({super.key});
 
+  @override
+  State<DifficultySelection> createState() => _DifficultySelectionState();
+}
+
+class _DifficultySelectionState extends State<DifficultySelection> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -326,7 +339,7 @@ class DifficultySelection extends StatelessWidget {
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => OthelloGame(isNPC: true, difficulty: difficulty),
+            builder: (context) => TurnSelection(difficulty: difficulty),
           ),
         ),
         borderRadius: BorderRadius.circular(12),
@@ -468,14 +481,183 @@ class DifficultyInfo {
   DifficultyInfo(this.name, this.description, this.colors);
 }
 
+class TurnSelection extends StatefulWidget {
+  final int difficulty;
+  
+  const TurnSelection({
+    super.key,
+    required this.difficulty,
+  });
+
+  @override
+  State<TurnSelection> createState() => _TurnSelectionState();
+}
+
+class _TurnSelectionState extends State<TurnSelection> {
+  bool _playerGoesFirst = true; // true: プレイヤー先手, false: AI先手
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('先手・後攻選択 (レベル${widget.difficulty})'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            const Text(
+              '先手・後攻を選択してください',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    const Text(
+                      'どちらが先手になりますか？',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildTurnOption(
+                            title: 'プレイヤー先手',
+                            subtitle: 'あなたが黒で先手',
+                            icon: Icons.person,
+                            color: Colors.black,
+                            isSelected: _playerGoesFirst,
+                            onTap: () => setState(() => _playerGoesFirst = true),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: _buildTurnOption(
+                            title: 'AI先手',
+                            subtitle: 'AIが黒で先手',
+                            icon: Icons.computer,
+                            color: Colors.blue,
+                            isSelected: !_playerGoesFirst,
+                            onTap: () => setState(() => _playerGoesFirst = false),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 30),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => OthelloGame(
+                                isNPC: true,
+                                difficulty: widget.difficulty,
+                                playerGoesFirst: _playerGoesFirst,
+                              ),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: const Text(
+                          'ゲーム開始',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTurnOption({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isSelected ? color.withOpacity(0.1) : Colors.grey.withOpacity(0.05),
+          border: Border.all(
+            color: isSelected ? color : Colors.grey.withOpacity(0.3),
+            width: isSelected ? 2 : 1,
+          ),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              size: 48,
+              color: isSelected ? color : Colors.grey,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: isSelected ? color : Colors.grey,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 12,
+                color: isSelected ? color.withOpacity(0.8) : Colors.grey,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class OthelloGame extends StatefulWidget {
   final bool isNPC;
   final int difficulty;
+  final bool playerGoesFirst; // true: プレイヤー先手, false: AI先手
   
   const OthelloGame({
     super.key, 
     required this.isNPC, 
     this.difficulty = 5,
+    this.playerGoesFirst = true, // デフォルトはプレイヤー先手
   });
 
   @override
@@ -495,12 +677,21 @@ class _OthelloGameState extends State<OthelloGame> {
   bool gameOver = false;
   String winner = '';
   final Random random = Random();
+  bool _showHintMode = false;
+  List<int>? _hintMove; // 最善手ヒント
 
   @override
   void initState() {
     super.initState();
     initializeBoard();
     updateScores();
+    
+    // AIが先手の場合、最初の手番でAIが動く
+    if (widget.isNPC && !widget.playerGoesFirst && currentPlayer == 1) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        makeNPCMove();
+      });
+    }
   }
 
   void initializeBoard() {
@@ -567,6 +758,9 @@ class _OthelloGameState extends State<OthelloGame> {
   void makeMove(int row, int col) {
     if (!isValidMove(row, col)) return;
     
+    // ヒントを消す
+    _hintMove = null;
+    
     List<List<int>> directions = [
       [-1, -1], [-1, 0], [-1, 1],
       [0, -1],           [0, 1],
@@ -602,10 +796,14 @@ class _OthelloGameState extends State<OthelloGame> {
     }
     
     // NPCプレイの場合、NPCの手番を実行
-    if (widget.isNPC && currentPlayer == 2 && !gameOver) {
-      Future.delayed(const Duration(milliseconds: 500), () {
-        makeNPCMove();
-      });
+    if (widget.isNPC && !gameOver) {
+      bool isNPCTurn = (widget.playerGoesFirst && currentPlayer == 2) || 
+                       (!widget.playerGoesFirst && currentPlayer == 1);
+      if (isNPCTurn) {
+        Future.delayed(const Duration(milliseconds: 500), () {
+          makeNPCMove();
+        });
+      }
     }
   }
 
@@ -931,6 +1129,7 @@ class _OthelloGameState extends State<OthelloGame> {
     
     showDialog(
       context: context,
+      barrierDismissible: false, // ダイアログ外タップで閉じない
       builder: (context) => AlertDialog(
         title: const Text('リワード広告'),
         content: const Column(
@@ -980,6 +1179,41 @@ class _OthelloGameState extends State<OthelloGame> {
     }
   }
 
+  void _showHint() {
+    if (!widget.isNPC || gameOver) return;
+    bool isPlayerTurn = (widget.playerGoesFirst && currentPlayer == 1) || 
+                       (!widget.playerGoesFirst && currentPlayer == 2);
+    if (!isPlayerTurn) return;
+    // 最善手を計算
+    List<List<int>> validMoves = [];
+    for (int i = 0; i < boardSize; i++) {
+      for (int j = 0; j < boardSize; j++) {
+        if (isValidMove(i, j)) {
+          validMoves.add([i, j]);
+        }
+      }
+    }
+    if (validMoves.isEmpty) return;
+    List<int> bestMove = _selectStrategicMove(validMoves);
+    setState(() {
+      _hintMove = bestMove;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('最適な一手を赤色で表示しています'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+    // 3秒後にヒントを消す
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) {
+        setState(() {
+          _hintMove = null;
+        });
+      }
+    });
+  }
+
   String _getDifficultyName() {
     switch (widget.difficulty) {
       case 1: return '超初心者';
@@ -1005,6 +1239,15 @@ class _OthelloGameState extends State<OthelloGame> {
           : 'オセロゲーム (二人プレイ)'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
+          // ヒントボタン（AI対戦時のみ表示）
+          if (widget.isNPC && !gameOver && 
+              ((widget.playerGoesFirst && currentPlayer == 1) || 
+               (!widget.playerGoesFirst && currentPlayer == 2)))
+            IconButton(
+              icon: const Icon(Icons.lightbulb_outline),
+              onPressed: _showHint,
+              tooltip: 'ヒント',
+            ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: resetGame,
@@ -1104,7 +1347,10 @@ class _OthelloGameState extends State<OthelloGame> {
   Widget _buildCell(int row, int col) {
     int cellValue = board[row][col];
     bool isValid = isValidMove(row, col);
-    bool isNPCTurn = widget.isNPC && currentPlayer == 2;
+    bool isNPCTurn = widget.isNPC && 
+                     ((widget.playerGoesFirst && currentPlayer == 2) || 
+                      (!widget.playerGoesFirst && currentPlayer == 1));
+    bool isHint = _hintMove != null && _hintMove![0] == row && _hintMove![1] == col;
     
     return GestureDetector(
       onTap: (gameOver || isNPCTurn) ? null : () {
@@ -1119,7 +1365,17 @@ class _OthelloGameState extends State<OthelloGame> {
         ),
         child: Center(
           child: cellValue == 0
-              ? (isValid ? _buildHintDot() : null)
+              ? (isHint
+                  ? Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.8),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.redAccent, width: 3),
+                      ),
+                    )
+                  : (isValid ? _buildHintDot() : null))
               : _buildStone(cellValue),
         ),
       ),

@@ -4,7 +4,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class AdManager {
   static const String _rewardedAdWatchedDateKey = 'rewarded_ad_watched_date';
+  static const String _appLaunchCountKey = 'app_launch_count';
+  static const String _lastLaunchDateKey = 'last_launch_date';
+  static const String _gameStartCountKey = 'game_start_count';
+  static const String _gameStartDateKey = 'game_start_date';
   static bool _isAdFreeToday = false;
+  static int _launchCount = 0;
+  static int _gameStartCount = 0;
 
   // その日のリワード広告視聴状態をチェック
   static Future<void> checkAdFreeStatus() async {
@@ -29,6 +35,40 @@ class AdManager {
       print('Error checking ad free status: $e');
       _isAdFreeToday = false;
     }
+  }
+
+  // アプリ起動カウントを更新
+  static Future<void> updateLaunchCount() async {
+    if (kIsWeb) return;
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final today = DateTime.now();
+      final todayString = today.toIso8601String().split('T')[0]; // YYYY-MM-DD形式
+      
+      final lastLaunchDate = prefs.getString(_lastLaunchDateKey);
+      
+      // 日付が変わったらカウントをリセット
+      if (lastLaunchDate != todayString) {
+        _launchCount = 1;
+        await prefs.setString(_lastLaunchDateKey, todayString);
+      } else {
+        _launchCount = prefs.getInt(_appLaunchCountKey) ?? 0;
+        _launchCount++;
+      }
+      
+      await prefs.setInt(_appLaunchCountKey, _launchCount);
+      print('App launch count: $_launchCount');
+    } catch (e) {
+      print('Error updating launch count: $e');
+      _launchCount = 1;
+    }
+  }
+
+  // 2回目の起動かどうかをチェック
+  static bool get shouldShowInterstitialOnLaunch {
+    if (kIsWeb) return false;
+    return _launchCount == 2 && shouldShowAds;
   }
 
   // リワード広告視聴完了時の処理
@@ -270,6 +310,34 @@ class AdManager {
     loadRewardedAd();
     
     return rewardEarned;
+  }
+
+  // ゲーム開始カウントを更新
+  static Future<void> updateGameStartCount() async {
+    if (kIsWeb) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final today = DateTime.now();
+      final todayString = today.toIso8601String().split('T')[0];
+      final lastGameStartDate = prefs.getString(_gameStartDateKey);
+      if (lastGameStartDate != todayString) {
+        _gameStartCount = 1;
+        await prefs.setString(_gameStartDateKey, todayString);
+      } else {
+        _gameStartCount = prefs.getInt(_gameStartCountKey) ?? 0;
+        _gameStartCount++;
+      }
+      await prefs.setInt(_gameStartCountKey, _gameStartCount);
+      print('Game start count: $_gameStartCount');
+    } catch (e) {
+      print('Error updating game start count: $e');
+      _gameStartCount = 1;
+    }
+  }
+
+  static bool get shouldShowInterstitialOnGameStart {
+    if (kIsWeb) return false;
+    return _gameStartCount >= 5 && shouldShowAds;
   }
 
   static void dispose() {
