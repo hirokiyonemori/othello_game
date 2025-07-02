@@ -4,6 +4,107 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'ad_manager.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+
+// ランキングエントリクラス
+class RankingEntry {
+  final String playerName;
+  final int score;
+  final int difficulty;
+  final bool isNPC;
+  final DateTime date;
+  final bool playerWon;
+
+  RankingEntry({
+    required this.playerName,
+    required this.score,
+    required this.difficulty,
+    required this.isNPC,
+    required this.date,
+    required this.playerWon,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'playerName': playerName,
+      'score': score,
+      'difficulty': difficulty,
+      'isNPC': isNPC,
+      'date': date.toIso8601String(),
+      'playerWon': playerWon,
+    };
+  }
+
+  factory RankingEntry.fromJson(Map<String, dynamic> json) {
+    return RankingEntry(
+      playerName: json['playerName'],
+      score: json['score'],
+      difficulty: json['difficulty'],
+      isNPC: json['isNPC'],
+      date: DateTime.parse(json['date']),
+      playerWon: json['playerWon'],
+    );
+  }
+}
+
+// ランキング管理クラス
+class RankingManager {
+  static const String _rankingKey = 'game_ranking';
+  static const int _maxEntries = 50; // 最大保存件数
+
+  // ランキングを保存
+  static Future<void> saveRanking(RankingEntry entry) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      List<String> rankingList = prefs.getStringList(_rankingKey) ?? [];
+      
+      // 新しいエントリを追加
+      rankingList.add(jsonEncode(entry.toJson()));
+      
+      // スコアでソート（降順）
+      rankingList.sort((a, b) {
+        final entryA = RankingEntry.fromJson(jsonDecode(a));
+        final entryB = RankingEntry.fromJson(jsonDecode(b));
+        return entryB.score.compareTo(entryA.score);
+      });
+      
+      // 最大件数を超えたら古いものを削除
+      if (rankingList.length > _maxEntries) {
+        rankingList = rankingList.take(_maxEntries).toList();
+      }
+      
+      await prefs.setStringList(_rankingKey, rankingList);
+    } catch (e) {
+      print('Error saving ranking: $e');
+    }
+  }
+
+  // ランキングを読み込み
+  static Future<List<RankingEntry>> loadRanking() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      List<String> rankingList = prefs.getStringList(_rankingKey) ?? [];
+      
+      return rankingList
+          .map((json) => RankingEntry.fromJson(jsonDecode(json)))
+          .toList();
+    } catch (e) {
+      print('Error loading ranking: $e');
+      return [];
+    }
+  }
+
+  // ランキングをクリア
+  static Future<void> clearRanking() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_rankingKey);
+    } catch (e) {
+      print('Error clearing ranking: $e');
+    }
+  }
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -155,6 +256,20 @@ class _GameModeSelectionState extends State<GameModeSelection> {
                     Icons.computer,
                     Colors.orange,
                     () => _navigateToGame(true),
+                  ),
+                  const SizedBox(height: 20),
+                  _buildModeButton(
+                    context,
+                    'ランキング',
+                    'スコアランキングを見る',
+                    Icons.leaderboard,
+                    Colors.purple,
+                    () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const RankingScreen(),
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -648,6 +763,189 @@ class _TurnSelectionState extends State<TurnSelection> {
   }
 }
 
+class RankingScreen extends StatefulWidget {
+  const RankingScreen({super.key});
+
+  @override
+  State<RankingScreen> createState() => _RankingScreenState();
+}
+
+class _RankingScreenState extends State<RankingScreen> {
+  List<RankingEntry> _rankings = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRankings();
+  }
+
+  Future<void> _loadRankings() async {
+    setState(() {
+      _isLoading = true;
+    });
+    
+    final rankings = await RankingManager.loadRanking();
+    setState(() {
+      _rankings = rankings;
+      _isLoading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('ランキング'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadRankings,
+            tooltip: '更新',
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete),
+            onPressed: _showClearDialog,
+            tooltip: 'ランキングをクリア',
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _rankings.isEmpty
+              ? const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.leaderboard, size: 64, color: Colors.grey),
+                      SizedBox(height: 16),
+                      Text(
+                        'ランキングデータがありません',
+                        style: TextStyle(
+                          fontSize: 18,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'ゲームをプレイしてスコアを記録しましょう！',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _rankings.length,
+                  itemBuilder: (context, index) {
+                    final entry = _rankings[index];
+                    return _buildRankingCard(entry, index + 1);
+                  },
+                ),
+    );
+  }
+
+  Widget _buildRankingCard(RankingEntry entry, int rank) {
+    final isTop3 = rank <= 3;
+    
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: isTop3 ? _getRankColor(rank) : Colors.grey,
+            shape: BoxShape.circle,
+          ),
+          child: Center(
+            child: Text(
+              '$rank',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+          ),
+        ),
+        title: Text(
+          entry.playerName,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('スコア: ${entry.score}'),
+            Text(
+              entry.isNPC 
+                ? 'AI対戦 (レベル${entry.difficulty})'
+                : '二人プレイ',
+            ),
+            Text(
+              '${entry.date.year}/${entry.date.month.toString().padLeft(2, '0')}/${entry.date.day.toString().padLeft(2, '0')}',
+              style: const TextStyle(fontSize: 12),
+            ),
+          ],
+        ),
+        trailing: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: entry.playerWon ? Colors.green : Colors.red,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            entry.playerWon ? '勝利' : '敗北',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _getRankColor(int rank) {
+    switch (rank) {
+      case 1: return Colors.amber; // 金
+      case 2: return Colors.grey; // 銀
+      case 3: return Colors.brown; // 銅
+      default: return Colors.grey;
+    }
+  }
+
+  void _showClearDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('ランキングをクリア'),
+        content: const Text('すべてのランキングデータを削除しますか？\nこの操作は取り消せません。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await RankingManager.clearRanking();
+              _loadRankings();
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('削除', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class OthelloGame extends StatefulWidget {
   final bool isNPC;
   final int difficulty;
@@ -787,6 +1085,9 @@ class _OthelloGameState extends State<OthelloGame> {
         } else {
           winner = '引き分け！';
         }
+        
+        // ランキングを保存
+        _saveGameResult();
         
         // ゲーム終了時に広告を表示
         if (AdManager.shouldShowAds) {
@@ -1110,6 +1411,47 @@ class _OthelloGameState extends State<OthelloGame> {
       initializeBoard();
       updateScores();
     });
+  }
+
+  void _saveGameResult() async {
+    try {
+      // プレイヤー名を取得（簡易版）
+      String playerName = 'プレイヤー';
+      
+      // 勝者を判定
+      bool playerWon = false;
+      if (widget.isNPC) {
+        // AI対戦の場合
+        if (widget.playerGoesFirst) {
+          // プレイヤーが黒の場合
+          playerWon = blackScore > whiteScore;
+        } else {
+          // プレイヤーが白の場合
+          playerWon = whiteScore > blackScore;
+        }
+      } else {
+        // 二人プレイの場合、黒の勝ちを記録
+        playerWon = blackScore > whiteScore;
+      }
+      
+      // スコアを決定（勝者のスコア）
+      int finalScore = playerWon 
+          ? (widget.playerGoesFirst ? blackScore : whiteScore)
+          : (widget.playerGoesFirst ? whiteScore : blackScore);
+      
+      final entry = RankingEntry(
+        playerName: playerName,
+        score: finalScore,
+        difficulty: widget.difficulty,
+        isNPC: widget.isNPC,
+        date: DateTime.now(),
+        playerWon: playerWon,
+      );
+      
+      await RankingManager.saveRanking(entry);
+    } catch (e) {
+      print('Error saving game result: $e');
+    }
   }
 
   void _showGameEndAds() {
