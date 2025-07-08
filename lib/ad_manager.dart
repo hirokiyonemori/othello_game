@@ -1,6 +1,8 @@
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:io';
+import 'dart:async';
 
 class AdManager {
   static const String _rewardedAdWatchedDateKey = 'rewarded_ad_watched_date';
@@ -101,7 +103,7 @@ class AdManager {
     }
     
     if (defaultTargetPlatform == TargetPlatform.android) {
-      return 'ca-app-pub-8148356110096114/7896973138'; // Android banner
+      return 'ca-app-pub-8148356110096114/2284859273'; // Android banner
     } else if (defaultTargetPlatform == TargetPlatform.iOS) {
       return 'ca-app-pub-8148356110096114/8259370564'; // iOS banner
     }
@@ -119,9 +121,9 @@ class AdManager {
     }
     
     if (defaultTargetPlatform == TargetPlatform.android) {
-      return 'ca-app-pub-8148356110096114/1234567890'; // Android interstitial (placeholder)
+      return 'ca-app-pub-8148356110096114/1435931599'; // Android interstitial
     } else if (defaultTargetPlatform == TargetPlatform.iOS) {
-      return 'ca-app-pub-8148356110096114/1234567890'; // iOS interstitial (placeholder)
+      return 'ca-app-pub-8148356110096114/3469948435'; // iOS interstitial
     }
     
     return 'ca-app-pub-3940256099942544/1033173712'; // Default test ad
@@ -137,7 +139,7 @@ class AdManager {
     }
     
     if (defaultTargetPlatform == TargetPlatform.android) {
-      return 'ca-app-pub-8148356110096114/9551167282'; // Android rewarded
+      return 'ca-app-pub-8148356110096114/7122252983'; // Android rewarded
     } else if (defaultTargetPlatform == TargetPlatform.iOS) {
       return 'ca-app-pub-8148356110096114/9415721322'; // iOS rewarded
     }
@@ -278,32 +280,58 @@ class AdManager {
   static bool get isRewardedAdReady => _isRewardedAdReady;
 
   static Future<bool> showRewardedAd() async {
+    print('AdManager.showRewardedAd called');
+    
     if (kIsWeb) {
+      print('Web platform - returning dummy reward');
       // Dummy reward for web
       await Future.delayed(const Duration(seconds: 2));
       await markRewardedAdWatched();
       return true;
     }
     
+    print('Rewarded ad ready: $_isRewardedAdReady, ad exists: ${_rewardedAd != null}');
+    
     if (!_isRewardedAdReady || _rewardedAd == null) {
+      print('Rewarded ad not ready or null');
       return false;
     }
 
-    bool rewardEarned = false;
+    Completer<bool> rewardCompleter = Completer<bool>();
     
+    print('Showing rewarded ad...');
     await _rewardedAd!.show(
       onUserEarnedReward: (_, reward) {
-        rewardEarned = true;
         print('User earned reward: ${reward.amount} ${reward.type}');
+        if (!rewardCompleter.isCompleted) {
+          rewardCompleter.complete(true);
+        }
       },
     );
 
     _rewardedAd = null;
     _isRewardedAdReady = false;
     
+    // リワード広告の結果を待つ（タイムアウト付き）
+    bool rewardEarned = false;
+    try {
+      rewardEarned = await rewardCompleter.future.timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          print('Rewarded ad timeout - assuming not earned');
+          return false;
+        },
+      );
+    } catch (e) {
+      print('Error waiting for reward: $e');
+      rewardEarned = false;
+    }
+    print('Reward earned: $rewardEarned');
+    
     // リワード広告視聴完了を記録
     if (rewardEarned) {
       await markRewardedAdWatched();
+      print('Rewarded ad marked as watched');
     }
     
     // Load the next ad
@@ -343,5 +371,37 @@ class AdManager {
   static void dispose() {
     _rewardedAd?.dispose();
     _interstitialAd?.dispose();
+  }
+
+  // IDFA関連のメソッド
+  static bool get isIDFASupported {
+    if (kIsWeb) return false;
+    if (Platform.isIOS) {
+      // iOS 14.5以降でIDFAがサポートされている
+      return true;
+    }
+    return false;
+  }
+
+  static String getIDFAStatusDescription() {
+    if (kIsWeb) return 'WebではIDFAはサポートされていません';
+    if (!Platform.isIOS) return 'AndroidではIDFAは使用されません';
+    return 'iOS 14.5以降でIDFAの許可が必要です';
+  }
+
+  // 広告リクエストにIDFA情報を含める
+  static AdRequest createAdRequest() {
+    if (kIsWeb) {
+      return const AdRequest();
+    }
+    
+    // iOSの場合、IDFAの許可状態に応じて広告リクエストを調整
+    if (Platform.isIOS) {
+      // 実際のアプリでは、IDFAの許可状態をチェックして
+      // 適切な広告リクエストを作成する
+      return const AdRequest();
+    }
+    
+    return const AdRequest();
   }
 } 

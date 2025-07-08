@@ -6,8 +6,6 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'ad_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 // ランキングエントリクラス
 class RankingEntry {
@@ -60,22 +58,18 @@ class RankingManager {
     try {
       final prefs = await SharedPreferences.getInstance();
       List<String> rankingList = prefs.getStringList(_rankingKey) ?? [];
-      
       // 新しいエントリを追加
       rankingList.add(jsonEncode(entry.toJson()));
-      
       // スコアでソート（降順）
       rankingList.sort((a, b) {
         final entryA = RankingEntry.fromJson(jsonDecode(a));
         final entryB = RankingEntry.fromJson(jsonDecode(b));
         return entryB.score.compareTo(entryA.score);
       });
-      
       // 最大件数を超えたら古いものを削除
       if (rankingList.length > _maxEntries) {
         rankingList = rankingList.take(_maxEntries).toList();
       }
-      
       await prefs.setStringList(_rankingKey, rankingList);
     } catch (e) {
       print('Error saving local ranking: $e');
@@ -87,7 +81,6 @@ class RankingManager {
     try {
       final prefs = await SharedPreferences.getInstance();
       List<String> rankingList = prefs.getStringList(_rankingKey) ?? [];
-      
       return rankingList
           .map((json) => RankingEntry.fromJson(jsonDecode(json)))
           .toList();
@@ -106,52 +99,6 @@ class RankingManager {
       print('Error clearing local ranking: $e');
     }
   }
-
-  // 全国ランキングを保存
-  static Future<void> saveGlobalRanking(RankingEntry entry) async {
-    if (kIsWeb) return; // Webでは無効
-    try {
-      await FirebaseFirestore.instance
-          .collection('rankings')
-          .add({
-        'playerName': entry.playerName,
-        'score': entry.score,
-        'difficulty': entry.difficulty,
-        'isNPC': entry.isNPC,
-        'date': entry.date.toIso8601String(),
-        'playerWon': entry.playerWon,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      print('Error saving global ranking: $e');
-    }
-  }
-
-  // 全国ランキングを読み込み
-  static Future<List<RankingEntry>> loadGlobalRanking() async {
-    if (kIsWeb) return []; // Webでは空のリストを返す
-    try {
-      final querySnapshot = await FirebaseFirestore.instance
-          .collection('rankings')
-          .orderBy('score', descending: true)
-          .limit(100)
-          .get();
-      return querySnapshot.docs.map((doc) {
-        final data = doc.data();
-        return RankingEntry(
-          playerName: data['playerName'] ?? '',
-          score: data['score'] ?? 0,
-          difficulty: data['difficulty'] ?? 1,
-          isNPC: data['isNPC'] ?? false,
-          date: DateTime.parse(data['date'] ?? DateTime.now().toIso8601String()),
-          playerWon: data['playerWon'] ?? false,
-        );
-      }).toList();
-    } catch (e) {
-      print('Error loading global ranking: $e');
-      return [];
-    }
-  }
 }
 
 void main() async {
@@ -160,15 +107,15 @@ void main() async {
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
-  // Initialize Firebase
-  if (!kIsWeb) {
-    await Firebase.initializeApp();
-  }
-  // Initialize AdMob only on mobile platforms
+  // AdMob初期化はそのまま
   if (!kIsWeb) {
     await MobileAds.instance.initialize();
     await AdManager.checkAdFreeStatus();
     await AdManager.updateLaunchCount();
+    
+    // IDFA関連の情報をログ出力
+    print('IDFA Support: ${AdManager.isIDFASupported}');
+    print('IDFA Status: ${AdManager.getIDFAStatusDescription()}');
   }
   runApp(const OthelloApp());
 }
@@ -821,51 +768,24 @@ class RankingScreen extends StatefulWidget {
   State<RankingScreen> createState() => _RankingScreenState();
 }
 
-class _RankingScreenState extends State<RankingScreen> with TickerProviderStateMixin {
+class _RankingScreenState extends State<RankingScreen> {
   List<RankingEntry> _localRankings = [];
-  List<RankingEntry> _globalRankings = [];
   bool _isLoading = true;
-  bool _isGlobalLoading = true;
-  int _selectedTabIndex = 0;
-  late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _tabController.addListener(() {
-      setState(() {
-        _selectedTabIndex = _tabController.index;
-      });
-    });
-    _loadRankings();
-  }
-
-  Future<void> _loadRankings() async {
-    setState(() {
-      _isLoading = true;
-      _isGlobalLoading = true;
-    });
-    // ローカルランキングと全国ランキングを並行して読み込み
-    await Future.wait([
-      _loadLocalRankings(),
-      _loadGlobalRankings(),
-    ]);
+    _loadLocalRankings();
   }
 
   Future<void> _loadLocalRankings() async {
+    setState(() {
+      _isLoading = true;
+    });
     final rankings = await RankingManager.loadLocalRanking();
     setState(() {
       _localRankings = rankings;
       _isLoading = false;
-    });
-  }
-
-  Future<void> _loadGlobalRankings() async {
-    final rankings = await RankingManager.loadGlobalRanking();
-    setState(() {
-      _globalRankings = rankings;
-      _isGlobalLoading = false;
     });
   }
 
@@ -878,31 +798,17 @@ class _RankingScreenState extends State<RankingScreen> with TickerProviderStateM
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadRankings,
+            onPressed: _loadLocalRankings,
             tooltip: '更新',
           ),
-          if (_selectedTabIndex == 0)
-            IconButton(
-              icon: const Icon(Icons.delete),
-              onPressed: _showClearDialog,
-              tooltip: 'ローカルランキングをクリア',
-            ),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'ローカル'),
-            Tab(text: '全国'),
-          ],
-        ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildLocalRankingTab(),
-          _buildGlobalRankingTab(),
+          IconButton(
+            icon: const Icon(Icons.delete),
+            onPressed: _showClearDialog,
+            tooltip: 'ローカルランキングをクリア',
+          ),
         ],
       ),
+      body: _buildLocalRankingTab(),
     );
   }
 
@@ -941,46 +847,6 @@ class _RankingScreenState extends State<RankingScreen> with TickerProviderStateM
       itemCount: _localRankings.length,
       itemBuilder: (context, index) {
         final entry = _localRankings[index];
-        return _buildRankingCard(entry, index + 1);
-      },
-    );
-  }
-
-  Widget _buildGlobalRankingTab() {
-    if (_isGlobalLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_globalRankings.isEmpty) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.cloud, size: 64, color: Colors.grey),
-            SizedBox(height: 16),
-            Text(
-              '全国ランキングデータがありません',
-              style: TextStyle(
-                fontSize: 18,
-                color: Colors.grey,
-              ),
-            ),
-            SizedBox(height: 8),
-            Text(
-              '他のプレイヤーのスコアを確認できます',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _globalRankings.length,
-      itemBuilder: (context, index) {
-        final entry = _globalRankings[index];
         return _buildRankingCard(entry, index + 1);
       },
     );
@@ -1054,12 +920,6 @@ class _RankingScreenState extends State<RankingScreen> with TickerProviderStateM
       case 3: return Colors.brown; // 銅
       default: return Colors.grey;
     }
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
   }
 
   void _showClearDialog() {
@@ -1626,6 +1486,47 @@ class _OthelloGameState extends State<OthelloGame> {
     bool isPlayerTurn = (widget.playerGoesFirst && currentPlayer == 1) || 
                        (!widget.playerGoesFirst && currentPlayer == 2);
     if (!isPlayerTurn) return;
+    
+    // リワード広告を表示してヒントを提供
+    _showHintRewardedAd();
+  }
+
+  void _showHintRewardedAd() async {
+    print('_showHintRewardedAd called');
+    
+    if (!AdManager.isRewardedAdReady) {
+      print('Rewarded ad not ready');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('リワード広告の準備中です。しばらく待ってから再度お試しください。'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    print('Showing rewarded ad...');
+    bool rewardEarned = await AdManager.showRewardedAd();
+    print('Reward earned: $rewardEarned');
+    
+    if (rewardEarned) {
+      // リワード獲得時、ヒントを表示
+      print('Calling _displayHint...');
+      _displayHint();
+    } else {
+      print('Reward not earned');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('リワード広告を最後まで視聴してください。'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  void _displayHint() {
+    print('_displayHint called');
+    
     // 最善手を計算
     List<List<int>> validMoves = [];
     for (int i = 0; i < boardSize; i++) {
@@ -1635,23 +1536,37 @@ class _OthelloGameState extends State<OthelloGame> {
         }
       }
     }
-    if (validMoves.isEmpty) return;
+    
+    print('Valid moves count: ${validMoves.length}');
+    
+    if (validMoves.isEmpty) {
+      print('No valid moves found');
+      return;
+    }
+    
     List<int> bestMove = _selectStrategicMove(validMoves);
+    print('Best move: $bestMove');
+    
     setState(() {
       _hintMove = bestMove;
     });
+    
+    print('Hint move set: $_hintMove');
+    
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('最適な一手を赤色で表示しています'),
-        duration: Duration(seconds: 2),
+        content: Text('リワード広告を視聴しました！最適な一手を赤色で表示しています'),
+        duration: Duration(seconds: 3),
       ),
     );
-    // 3秒後にヒントを消す
-    Future.delayed(const Duration(seconds: 3), () {
+    
+    // 5秒後にヒントを消す（リワード広告視聴の報酬なので少し長めに）
+    Future.delayed(const Duration(seconds: 5), () {
       if (mounted) {
         setState(() {
           _hintMove = null;
         });
+        print('Hint cleared after 5 seconds');
       }
     });
   }
@@ -1688,7 +1603,7 @@ class _OthelloGameState extends State<OthelloGame> {
             IconButton(
               icon: const Icon(Icons.lightbulb_outline),
               onPressed: _showHint,
-              tooltip: 'ヒント',
+              tooltip: 'リワード広告を視聴してヒントを表示',
             ),
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -1816,6 +1731,11 @@ class _OthelloGameState extends State<OthelloGame> {
                       (!widget.playerGoesFirst && currentPlayer == 1));
     bool isHint = _hintMove != null && _hintMove![0] == row && _hintMove![1] == col;
     
+    // デバッグ用：ヒントが設定されている場合のみログ出力
+    if (_hintMove != null && row == 0 && col == 0) {
+      print('Building cell at (0,0), hint move: $_hintMove, isHint: $isHint');
+    }
+    
     return GestureDetector(
       onTap: (gameOver || isNPCTurn) ? null : () {
         setState(() {
@@ -1880,44 +1800,37 @@ class _OthelloGameState extends State<OthelloGame> {
   }
 
   void _saveGameResult() async {
-    try {
-      // プレイヤー名を取得（簡易版）
-      String playerName = 'プレイヤー';
-      // 勝者を判定
-      bool playerWon = false;
-      if (widget.isNPC) {
-        // AI対戦の場合
-        if (widget.playerGoesFirst) {
-          // プレイヤーが黒の場合
-          playerWon = blackScore > whiteScore;
-        } else {
-          // プレイヤーが白の場合
-          playerWon = whiteScore > blackScore;
-        }
-      } else {
-        // 二人プレイの場合、黒の勝ちを記録
+    // プレイヤー名を取得（簡易版）
+    String playerName = 'プレイヤー';
+    // 勝者を判定
+    bool playerWon = false;
+    if (widget.isNPC) {
+      // AI対戦の場合
+      if (widget.playerGoesFirst) {
+        // プレイヤーが黒の場合
         playerWon = blackScore > whiteScore;
+      } else {
+        // プレイヤーが白の場合
+        playerWon = whiteScore > blackScore;
       }
-      // スコアを決定（勝者のスコア）
-      int finalScore = playerWon 
-          ? (widget.playerGoesFirst ? blackScore : whiteScore)
-          : (widget.playerGoesFirst ? whiteScore : blackScore);
-      final entry = RankingEntry(
-        playerName: playerName,
-        score: finalScore,
-        difficulty: widget.difficulty,
-        isNPC: widget.isNPC,
-        date: DateTime.now(),
-        playerWon: playerWon,
-      );
-      // ローカルランキングと全国ランキングの両方に保存
-      await Future.wait([
-        RankingManager.saveLocalRanking(entry),
-        RankingManager.saveGlobalRanking(entry),
-      ]);
-    } catch (e) {
-      print('Error saving game result: $e');
+    } else {
+      // 二人プレイの場合、黒の勝ちを記録
+      playerWon = blackScore > whiteScore;
     }
+    // スコアを決定（勝者のスコア）
+    int finalScore = playerWon 
+        ? (widget.playerGoesFirst ? blackScore : whiteScore)
+        : (widget.playerGoesFirst ? whiteScore : blackScore);
+    final entry = RankingEntry(
+      playerName: playerName,
+      score: finalScore,
+      difficulty: widget.difficulty,
+      isNPC: widget.isNPC,
+      date: DateTime.now(),
+      playerWon: playerWon,
+    );
+    // ローカルランキングのみ保存
+    await RankingManager.saveLocalRanking(entry);
   }
 }
 
