@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
 import 'package:flutter/services.dart';
-import 'package:flutter/foundation.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
-import 'ad_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
@@ -107,16 +104,6 @@ void main() async {
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
-  // AdMob初期化はそのまま
-  if (!kIsWeb) {
-    await MobileAds.instance.initialize();
-    await AdManager.checkAdFreeStatus();
-    await AdManager.updateLaunchCount();
-    
-    // IDFA関連の情報をログ出力
-    print('IDFA Support: ${AdManager.isIDFASupported}');
-    print('IDFA Status: ${AdManager.getIDFAStatusDescription()}');
-  }
   runApp(const OthelloApp());
 }
 
@@ -127,7 +114,7 @@ class OthelloApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'オセロゲーム',
-      debugShowCheckedModeBanner: false, // デバッグバナーを非表示
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
         useMaterial3: true,
@@ -145,52 +132,7 @@ class GameModeSelection extends StatefulWidget {
 }
 
 class _GameModeSelectionState extends State<GameModeSelection> {
-  BannerAd? _bannerAd;
-  bool _isAdLoaded = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadBannerAd();
-    AdManager.loadRewardedAd();
-    AdManager.loadInterstitialAd();
-    
-    // 2回目の起動時にインタースティシャル広告を表示
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (AdManager.shouldShowInterstitialOnLaunch && AdManager.isInterstitialAdReady) {
-        AdManager.showInterstitialAd();
-      }
-    });
-  }
-
-  void _loadBannerAd() {
-    if (AdManager.shouldShowAds) {
-      _bannerAd = AdManager.createBannerAd();
-      _bannerAd!.load().then((_) {
-        setState(() {
-          _isAdLoaded = true;
-        });
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _bannerAd?.dispose();
-    super.dispose();
-  }
-
   void _navigateToGame(bool isNPC) {
-    _navigateToGameScreen(isNPC);
-  }
-
-  void _navigateToGameScreen(bool isNPC) async {
-    // ゲーム開始カウントを更新
-    await AdManager.updateGameStartCount();
-    // 5回目以降ならインタースティシャル広告を表示
-    if (AdManager.shouldShowInterstitialOnGameStart && AdManager.isInterstitialAdReady) {
-      await AdManager.showInterstitialAd();
-    }
     if (isNPC) {
       Navigator.push(
         context,
@@ -214,40 +156,29 @@ class _GameModeSelectionState extends State<GameModeSelection> {
       appBar: AppBar(
         title: const Text('オセロゲーム'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          if (AdManager.shouldShowAds)
-            IconButton(
-              icon: const Icon(Icons.visibility),
-              onPressed: _showRewardedAdDialog,
-              tooltip: 'リワード広告を見て今日の広告を削除',
-            ),
-        ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Text(
-                    'プレイモードを選択してください',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 40),
-                  _buildModeButton(
-                    context,
-                    '二人プレイ',
-                    '友達と一緒にプレイ',
-                    Icons.people,
-                    Colors.blue,
-                    () => _navigateToGame(false),
-                  ),
-                  const SizedBox(height: 20),
-                  _buildModeButton(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              'プレイモードを選択してください',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 40),
+            _buildModeButton(
+              context,
+              '二人プレイ',
+              '友達と一緒にプレイ',
+              Icons.people,
+              Colors.blue,
+              () => _navigateToGame(false),
+            ),
+            const SizedBox(height: 20),
+                              _buildModeButton(
                     context,
                     'NPCプレイ',
                     'AIと対戦（難易度選択）',
@@ -269,75 +200,10 @@ class _GameModeSelectionState extends State<GameModeSelection> {
                       ),
                     ),
                   ),
-                ],
-              ),
-            ),
-          ),
-          // Banner Ad
-          if (AdManager.shouldShowAds && _isAdLoaded && _bannerAd != null)
-            Container(
-              width: _bannerAd!.size.width.toDouble(),
-              height: _bannerAd!.size.height.toDouble(),
-              child: AdWidget(ad: _bannerAd!),
-            ),
-        ],
-      ),
-    );
-  }
-
-  void _showRewardedAdDialog() {
-    if (!AdManager.shouldShowAds) return;
-    
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('リワード広告'),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('リワード広告を見ると、今日は広告が表示されなくなります。'),
-            SizedBox(height: 16),
-            Text(
-              '広告を見ますか？',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('キャンセル'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _showRewardedAd();
-            },
-            child: const Text('広告を見る'),
-          ),
-        ],
       ),
     );
-  }
-
-  Future<void> _showRewardedAd() async {
-    try {
-      final rewardEarned = await AdManager.showRewardedAd();
-      if (rewardEarned) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('今日は広告が表示されません！')),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('広告の視聴に失敗しました。')),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('エラーが発生しました: $e')),
-      );
-    }
   }
 
   Widget _buildModeButton(
@@ -408,353 +274,62 @@ class _DifficultySelectionState extends State<DifficultySelection> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('AI難易度選択'),
+        title: const Text('難易度選択'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
+      body: Center(
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Text(
-              'AIの難易度を選択してください',
+              '難易度を選択してください',
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
               ),
             ),
+            const SizedBox(height: 40),
+            _buildDifficultyButton('初級', 1, Colors.green),
             const SizedBox(height: 20),
-            Expanded(
-              child: GridView.builder(
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  childAspectRatio: 1.2,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                ),
-                itemCount: 10,
-                itemBuilder: (context, index) {
-                  return _buildDifficultyCard(context, index + 1);
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDifficultyCard(BuildContext context, int difficulty) {
-    final difficultyInfo = _getDifficultyInfo(difficulty);
-    
-    return Card(
-      elevation: 4,
-      child: InkWell(
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => TurnSelection(difficulty: difficulty),
-          ),
-        ),
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: difficultyInfo.colors,
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    'レベル $difficulty',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    difficultyInfo.name,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Flexible(
-                  child: Text(
-                    difficultyInfo.description,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: Colors.white70,
-                    ),
-                    textAlign: TextAlign.center,
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 2,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  DifficultyInfo _getDifficultyInfo(int difficulty) {
-    switch (difficulty) {
-      case 1:
-        return DifficultyInfo(
-          '超初心者',
-          'ランダムに手を選択',
-          [Colors.green, Colors.lightGreen],
-        );
-      case 2:
-        return DifficultyInfo(
-          '初心者',
-          '時々良い手を選択',
-          [Colors.lightGreen, Colors.green],
-        );
-      case 3:
-        return DifficultyInfo(
-          '初級',
-          '基本的な戦略',
-          [Colors.blue, Colors.lightBlue],
-        );
-      case 4:
-        return DifficultyInfo(
-          '初級+',
-          '少し賢い選択',
-          [Colors.lightBlue, Colors.blue],
-        );
-      case 5:
-        return DifficultyInfo(
-          '中級',
-          'バランスの取れた戦略',
-          [Colors.orange, Colors.deepOrange],
-        );
-      case 6:
-        return DifficultyInfo(
-          '中級+',
-          'より良い手を選択',
-          [Colors.deepOrange, Colors.orange],
-        );
-      case 7:
-        return DifficultyInfo(
-          '上級',
-          '高度な戦略',
-          [Colors.purple, Colors.deepPurple],
-        );
-      case 8:
-        return DifficultyInfo(
-          '上級+',
-          '非常に良い手を選択',
-          [Colors.deepPurple, Colors.purple],
-        );
-      case 9:
-        return DifficultyInfo(
-          'エキスパート',
-          '最適に近い選択',
-          [Colors.red, Colors.red[900]!],
-        );
-      case 10:
-        return DifficultyInfo(
-          'マスター',
-          'ほぼ最適な選択',
-          [Colors.red[900]!, Colors.red],
-        );
-      default:
-        return DifficultyInfo(
-          '初級',
-          '基本的な戦略',
-          [Colors.blue, Colors.lightBlue],
-        );
-    }
-  }
-}
-
-class DifficultyInfo {
-  final String name;
-  final String description;
-  final List<Color> colors;
-
-  DifficultyInfo(this.name, this.description, this.colors);
-}
-
-class TurnSelection extends StatefulWidget {
-  final int difficulty;
-  
-  const TurnSelection({
-    super.key,
-    required this.difficulty,
-  });
-
-  @override
-  State<TurnSelection> createState() => _TurnSelectionState();
-}
-
-class _TurnSelectionState extends State<TurnSelection> {
-  bool _playerGoesFirst = true; // true: プレイヤー先手, false: AI先手
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('先手・後攻選択 (レベル${widget.difficulty})'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            const Text(
-              '先手・後攻を選択してください',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+            _buildDifficultyButton('中級', 2, Colors.orange),
             const SizedBox(height: 20),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  children: [
-                    const Text(
-                      'どちらが先手になりますか？',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildTurnOption(
-                            title: 'プレイヤー先手',
-                            subtitle: 'あなたが黒で先手',
-                            icon: Icons.person,
-                            color: Colors.black,
-                            isSelected: _playerGoesFirst,
-                            onTap: () => setState(() => _playerGoesFirst = true),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: _buildTurnOption(
-                            title: 'AI先手',
-                            subtitle: 'AIが黒で先手',
-                            icon: Icons.computer,
-                            color: Colors.blue,
-                            isSelected: !_playerGoesFirst,
-                            onTap: () => setState(() => _playerGoesFirst = false),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 30),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => OthelloGame(
-                                isNPC: true,
-                                difficulty: widget.difficulty,
-                                playerGoesFirst: _playerGoesFirst,
-                              ),
-                            ),
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: const Text(
-                          'ゲーム開始',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            _buildDifficultyButton('上級', 3, Colors.red),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildTurnOption({
-    required String title,
-    required String subtitle,
-    required IconData icon,
-    required Color color,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: isSelected ? color.withOpacity(0.1) : Colors.grey.withOpacity(0.05),
-          border: Border.all(
-            color: isSelected ? color : Colors.grey.withOpacity(0.3),
-            width: isSelected ? 2 : 1,
+  Widget _buildDifficultyButton(String title, int difficulty, Color color) {
+    return Container(
+      width: 200,
+      height: 80,
+      child: ElevatedButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => OthelloGame(
+                isNPC: true,
+                difficulty: difficulty,
+              ),
+            ),
+          );
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color.withOpacity(0.1),
+          foregroundColor: color,
+          side: BorderSide(color: color, width: 2),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
           ),
-          borderRadius: BorderRadius.circular(12),
         ),
-        child: Column(
-          children: [
-            Icon(
-              icon,
-              size: 48,
-              color: isSelected ? color : Colors.grey,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: isSelected ? color : Colors.grey,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: TextStyle(
-                fontSize: 12,
-                color: isSelected ? color.withOpacity(0.8) : Colors.grey,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
+        child: Text(
+          title,
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
         ),
       ),
     );
@@ -951,13 +526,11 @@ class _RankingScreenState extends State<RankingScreen> {
 class OthelloGame extends StatefulWidget {
   final bool isNPC;
   final int difficulty;
-  final bool playerGoesFirst; // true: プレイヤー先手, false: AI先手
-  
+
   const OthelloGame({
-    super.key, 
-    required this.isNPC, 
-    this.difficulty = 5,
-    this.playerGoesFirst = true, // デフォルトはプレイヤー先手
+    super.key,
+    required this.isNPC,
+    this.difficulty = 1,
   });
 
   @override
@@ -966,668 +539,476 @@ class OthelloGame extends StatefulWidget {
 
 class _OthelloGameState extends State<OthelloGame> {
   static const int boardSize = 8;
-  List<List<int>> board = List.generate(
-    boardSize,
-    (i) => List.generate(boardSize, (j) => 0),
-  );
-  
+  late List<List<int>> board;
   int currentPlayer = 1; // 1: 黒, 2: 白
+  bool gameOver = false;
   int blackScore = 0;
   int whiteScore = 0;
-  bool gameOver = false;
-  String winner = '';
-  final Random random = Random();
-  bool _showHintMode = false;
-  List<int>? _hintMove; // 最善手ヒント
+  String gameResult = '';
 
   @override
   void initState() {
     super.initState();
-    initializeBoard();
-    updateScores();
+    _initializeBoard();
+    _calculateScores();
+  }
+
+  void _initializeBoard() {
+    board = List.generate(
+      boardSize,
+      (i) => List.generate(boardSize, (j) => 0),
+    );
     
-    // AIが先手の場合、最初の手番でAIが動く
-    if (widget.isNPC && !widget.playerGoesFirst && currentPlayer == 1) {
-      Future.delayed(const Duration(milliseconds: 500), () {
-        makeNPCMove();
-      });
-    }
-  }
-
-  void initializeBoard() {
     // 初期配置
-    board[3][3] = 2; // 白
-    board[3][4] = 1; // 黒
-    board[4][3] = 1; // 黒
-    board[4][4] = 2; // 白
+    int center = boardSize ~/ 2;
+    board[center - 1][center - 1] = 2; // 白
+    board[center - 1][center] = 1;     // 黒
+    board[center][center - 1] = 1;     // 黒
+    board[center][center] = 2;         // 白
   }
 
-  void updateScores() {
+  void _calculateScores() {
     blackScore = 0;
     whiteScore = 0;
     for (int i = 0; i < boardSize; i++) {
       for (int j = 0; j < boardSize; j++) {
-        if (board[i][j] == 1) blackScore++;
-        if (board[i][j] == 2) whiteScore++;
+        if (board[i][j] == 1) {
+          blackScore++;
+        } else if (board[i][j] == 2) {
+          whiteScore++;
+        }
       }
     }
-    // デバッグ用：スコアをコンソールに出力
-    print('スコア更新 - 黒: $blackScore, 白: $whiteScore');
   }
 
-  bool isValidMove(int row, int col) {
+  bool _isValidMove(int row, int col, int player) {
     if (board[row][col] != 0) return false;
-    
-    List<List<int>> directions = [
+
+    final directions = [
       [-1, -1], [-1, 0], [-1, 1],
       [0, -1],           [0, 1],
-      [1, -1],  [1, 0],  [1, 1]
+      [1, -1],  [1, 0],  [1, 1],
     ];
 
-    for (var direction in directions) {
-      if (canFlip(row, col, direction[0], direction[1])) {
+    for (final direction in directions) {
+      if (_canFlip(row, col, direction[0], direction[1], player)) {
         return true;
       }
     }
     return false;
   }
 
-  bool canFlip(int row, int col, int dRow, int dCol) {
-    int newRow = row + dRow;
-    int newCol = col + dCol;
-    
-    if (newRow < 0 || newRow >= boardSize || newCol < 0 || newCol >= boardSize) {
-      return false;
+  bool _canFlip(int row, int col, int dRow, int dCol, int player) {
+    int opponent = player == 1 ? 2 : 1;
+    int r = row + dRow;
+    int c = col + dCol;
+    bool hasOpponent = false;
+
+    while (r >= 0 && r < boardSize && c >= 0 && c < boardSize) {
+      if (board[r][c] == opponent) {
+        hasOpponent = true;
+      } else if (board[r][c] == player) {
+        return hasOpponent;
+      } else {
+        break;
+      }
+      r += dRow;
+      c += dCol;
     }
-    
-    if (board[newRow][newCol] != (currentPlayer == 1 ? 2 : 1)) {
-      return false;
-    }
-    
-    newRow += dRow;
-    newCol += dCol;
-    
-    while (newRow >= 0 && newRow < boardSize && newCol >= 0 && newCol < boardSize) {
-      if (board[newRow][newCol] == 0) return false;
-      if (board[newRow][newCol] == currentPlayer) return true;
-      newRow += dRow;
-      newCol += dCol;
-    }
-    
     return false;
   }
 
-  void makeMove(int row, int col) {
-    if (!isValidMove(row, col)) return;
-    
-    // ヒントを消す
-    _hintMove = null;
-    
-    List<List<int>> directions = [
-      [-1, -1], [-1, 0], [-1, 1],
-      [0, -1],           [0, 1],
-      [1, -1],  [1, 0],  [1, 1]
-    ];
+  void _makeMove(int row, int col) {
+    if (!_isValidMove(row, col, currentPlayer)) return;
 
     board[row][col] = currentPlayer;
-    
-    for (var direction in directions) {
-      flipStones(row, col, direction[0], direction[1]);
-    }
-    
+    _flipPieces(row, col, currentPlayer);
+    _calculateScores();
+
+    // 次のプレイヤーに交代
     currentPlayer = currentPlayer == 1 ? 2 : 1;
-    updateScores();
-    
-    // ゲーム終了チェック
-    if (!hasValidMoves()) {
-      if (!hasValidMoves()) {
-        gameOver = true;
-        if (blackScore > whiteScore) {
-          winner = '黒の勝ち！';
-        } else if (whiteScore > blackScore) {
-          winner = '白の勝ち！';
-        } else {
-          winner = '引き分け！';
-        }
-        
-        // ゲーム終了時に広告を表示
-        if (AdManager.shouldShowAds) {
-          _showGameEndAds();
-        }
-      }
+
+    // NPCの場合はAIの手番
+    if (widget.isNPC && currentPlayer == 2 && !gameOver) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _makeAIMove();
+      });
     }
-    
-    // NPCプレイの場合、NPCの手番を実行
-    if (widget.isNPC && !gameOver) {
-      bool isNPCTurn = (widget.playerGoesFirst && currentPlayer == 2) || 
-                       (!widget.playerGoesFirst && currentPlayer == 1);
-      if (isNPCTurn) {
-        Future.delayed(const Duration(milliseconds: 500), () {
-          makeNPCMove();
-        });
+
+    // ゲーム終了チェック
+    _checkGameOver();
+  }
+
+  void _flipPieces(int row, int col, int player) {
+    final directions = [
+      [-1, -1], [-1, 0], [-1, 1],
+      [0, -1],           [0, 1],
+      [1, -1],  [1, 0],  [1, 1],
+    ];
+
+    for (final direction in directions) {
+      if (_canFlip(row, col, direction[0], direction[1], player)) {
+        _flipInDirection(row, col, direction[0], direction[1], player);
       }
     }
   }
 
-  void makeNPCMove() {
-    if (gameOver) return;
-    
+  void _flipInDirection(int row, int col, int dRow, int dCol, int player) {
+    int opponent = player == 1 ? 2 : 1;
+    int r = row + dRow;
+    int c = col + dCol;
+
+    while (r >= 0 && r < boardSize && c >= 0 && c < boardSize) {
+      if (board[r][c] == opponent) {
+        board[r][c] = player;
+      } else {
+        break;
+      }
+      r += dRow;
+      c += dCol;
+    }
+  }
+
+  void _makeAIMove() {
     List<List<int>> validMoves = [];
+    
     for (int i = 0; i < boardSize; i++) {
       for (int j = 0; j < boardSize; j++) {
-        if (isValidMove(i, j)) {
+        if (_isValidMove(i, j, currentPlayer)) {
           validMoves.add([i, j]);
         }
       }
     }
-    
+
     if (validMoves.isNotEmpty) {
-      List<int> selectedMove = selectMoveByDifficulty(validMoves);
+      List<int> bestMove;
       
-      setState(() {
-        makeMove(selectedMove[0], selectedMove[1]);
-      });
+      switch (widget.difficulty) {
+        case 1: // 初級: ランダム
+          bestMove = validMoves[Random().nextInt(validMoves.length)];
+          break;
+        case 2: // 中級: 貪欲法
+          bestMove = _findGreedyMove(validMoves);
+          break;
+        case 3: // 上級: ミニマックス
+          bestMove = _findMinimaxMove(validMoves);
+          break;
+        default:
+          bestMove = validMoves[0];
+      }
+      
+      _makeMove(bestMove[0], bestMove[1]);
     }
   }
 
-  List<int> selectMoveByDifficulty(List<List<int>> validMoves) {
-    if (validMoves.isEmpty) return [0, 0];
-    
-    // 難易度に応じた選択確率
-    double randomChance = _getRandomChance();
-    
-    if (random.nextDouble() < randomChance) {
-      // ランダム選択
-      return validMoves[random.nextInt(validMoves.length)];
-    } else {
-      // 戦略的選択
-      return _selectStrategicMove(validMoves);
-    }
-  }
+  List<int> _findGreedyMove(List<List<int>> validMoves) {
+    List<int> bestMove = validMoves[0];
+    int maxFlips = 0;
 
-  double _getRandomChance() {
-    // 難易度が低いほどランダム選択の確率が高い
-    switch (widget.difficulty) {
-      case 1: return 0.95; // 95%ランダム
-      case 2: return 0.85; // 85%ランダム
-      case 3: return 0.70; // 70%ランダム
-      case 4: return 0.55; // 55%ランダム
-      case 5: return 0.40; // 40%ランダム
-      case 6: return 0.25; // 25%ランダム
-      case 7: return 0.15; // 15%ランダム
-      case 8: return 0.08; // 8%ランダム
-      case 9: return 0.03; // 3%ランダム
-      case 10: return 0.01; // 1%ランダム
-      default: return 0.40;
-    }
-  }
-
-  List<int> _selectStrategicMove(List<List<int>> validMoves) {
-    // 複数の戦略を組み合わせて選択
-    List<MoveScore> scoredMoves = [];
-    
-    for (var move in validMoves) {
-      double score = _calculateMoveScore(move[0], move[1]);
-      scoredMoves.add(MoveScore(move, score));
-    }
-    
-    // スコアでソート
-    scoredMoves.sort((a, b) => b.score.compareTo(a.score));
-    
-    // 難易度に応じて上位の手から選択
-    int selectionRange = _getSelectionRange();
-    int selectedIndex = random.nextInt(
-      scoredMoves.length > selectionRange ? selectionRange : scoredMoves.length
-    );
-    
-    return scoredMoves[selectedIndex].move;
-  }
-
-  int _getSelectionRange() {
-    // 難易度が高いほど良い手を選択
-    switch (widget.difficulty) {
-      case 1: return 10; // 上位10手からランダム
-      case 2: return 8;
-      case 3: return 6;
-      case 4: return 5;
-      case 5: return 4;
-      case 6: return 3;
-      case 7: return 2;
-      case 8: return 2;
-      case 9: return 1;
-      case 10: return 1; // 最良の手のみ
-      default: return 4;
-    }
-  }
-
-  double _calculateMoveScore(int row, int col) {
-    double score = 0.0;
-    
-    // 1. 取れる石の数（基本スコア）
-    score += countFlips(row, col) * 10;
-    
-    // 2. 位置によるボーナス
-    score += _getPositionBonus(row, col);
-    
-    // 3. 安定性ボーナス
-    score += _getStabilityBonus(row, col);
-    
-    // 4. 機会ボーナス
-    score += _getOpportunityBonus(row, col);
-    
-    return score;
-  }
-
-  double _getPositionBonus(int row, int col) {
-    // 角は最高点
-    if ((row == 0 || row == 7) && (col == 0 || col == 7)) {
-      return 100;
-    }
-    
-    // 端は高得点
-    if (row == 0 || row == 7 || col == 0 || col == 7) {
-      return 20;
-    }
-    
-    // 内側は低得点
-    if (row >= 2 && row <= 5 && col >= 2 && col <= 5) {
-      return 5;
-    }
-    
-    return 10;
-  }
-
-  double _getStabilityBonus(int row, int col) {
-    // 取られた石が少ない手を優先
-    double stability = 0;
-    
-    // 仮想的に石を置いてみる
-    List<List<int>> tempBoard = List.generate(
-      boardSize,
-      (i) => List.from(board[i]),
-    );
-    
-    tempBoard[row][col] = currentPlayer;
-    
-    // 取られる可能性を計算
-    for (int i = 0; i < boardSize; i++) {
-      for (int j = 0; j < boardSize; j++) {
-        if (tempBoard[i][j] == currentPlayer) {
-          stability += _calculateStability(i, j);
-        }
+    for (final move in validMoves) {
+      int flips = _countFlips(move[0], move[1], currentPlayer);
+      if (flips > maxFlips) {
+        maxFlips = flips;
+        bestMove = move;
       }
     }
-    
-    return stability;
+
+    return bestMove;
   }
 
-  double _calculateStability(int row, int col) {
-    // 角は安定
-    if ((row == 0 || row == 7) && (col == 0 || col == 7)) {
-      return 50;
-    }
-    
-    // 端は比較的安定
-    if (row == 0 || row == 7 || col == 0 || col == 7) {
-      return 10;
-    }
-    
-    return 1;
-  }
+  List<int> _findMinimaxMove(List<List<int>> validMoves) {
+    List<int> bestMove = validMoves[0];
+    int bestScore = -1000;
 
-  double _getOpportunityBonus(int row, int col) {
-    // 相手の良い手を減らすボーナス
-    double bonus = 0;
-    
-    // 仮想的に石を置いてみる
-    List<List<int>> tempBoard = List.generate(
-      boardSize,
-      (i) => List.from(board[i]),
-    );
-    
-    tempBoard[row][col] = currentPlayer;
-    
-    // 相手の有効な手の数を計算
-    int opponentMoves = 0;
-    for (int i = 0; i < boardSize; i++) {
-      for (int j = 0; j < boardSize; j++) {
-        if (_isValidMoveForOpponent(tempBoard, i, j)) {
-          opponentMoves++;
-        }
+    for (final move in validMoves) {
+      List<List<int>> tempBoard = _copyBoard();
+      _makeTempMove(tempBoard, move[0], move[1], currentPlayer);
+      int score = _minimax(tempBoard, 3, false, -1000, 1000);
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestMove = move;
       }
     }
-    
-    // 相手の手が少ないほどボーナス
-    bonus += (64 - opponentMoves) * 0.5;
-    
-    return bonus;
+
+    return bestMove;
   }
 
-  bool _isValidMoveForOpponent(List<List<int>> tempBoard, int row, int col) {
-    if (tempBoard[row][col] != 0) return false;
-    
-    List<List<int>> directions = [
-      [-1, -1], [-1, 0], [-1, 1],
-      [0, -1],           [0, 1],
-      [1, -1],  [1, 0],  [1, 1]
-    ];
-
-    for (var direction in directions) {
-      if (_canFlipForOpponent(tempBoard, row, col, direction[0], direction[1])) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  bool _canFlipForOpponent(List<List<int>> tempBoard, int row, int col, int dRow, int dCol) {
-    int newRow = row + dRow;
-    int newCol = col + dCol;
-    
-    if (newRow < 0 || newRow >= boardSize || newCol < 0 || newCol >= boardSize) {
-      return false;
-    }
-    
-    if (tempBoard[newRow][newCol] != currentPlayer) {
-      return false;
-    }
-    
-    newRow += dRow;
-    newCol += dCol;
-    
-    while (newRow >= 0 && newRow < boardSize && newCol >= 0 && newCol < boardSize) {
-      if (tempBoard[newRow][newCol] == 0) return false;
-      if (tempBoard[newRow][newCol] == (currentPlayer == 1 ? 2 : 1)) return true;
-      newRow += dRow;
-      newCol += dCol;
-    }
-    
-    return false;
-  }
-
-  int countFlips(int row, int col) {
-    if (!isValidMove(row, col)) return 0;
-    
+  int _countFlips(int row, int col, int player) {
     int totalFlips = 0;
-    List<List<int>> directions = [
+    final directions = [
       [-1, -1], [-1, 0], [-1, 1],
       [0, -1],           [0, 1],
-      [1, -1],  [1, 0],  [1, 1]
+      [1, -1],  [1, 0],  [1, 1],
     ];
 
-    for (var direction in directions) {
-      totalFlips += countFlipsInDirection(row, col, direction[0], direction[1]);
+    for (final direction in directions) {
+      if (_canFlip(row, col, direction[0], direction[1], player)) {
+        totalFlips += _countFlipsInDirection(row, col, direction[0], direction[1], player);
+      }
     }
-    
+
     return totalFlips;
   }
 
-  int countFlipsInDirection(int row, int col, int dRow, int dCol) {
-    if (!canFlip(row, col, dRow, dCol)) return 0;
-    
-    int flips = 0;
-    int newRow = row + dRow;
-    int newCol = col + dCol;
-    
-    while (board[newRow][newCol] != currentPlayer) {
-      flips++;
-      newRow += dRow;
-      newCol += dCol;
+  int _countFlipsInDirection(int row, int col, int dRow, int dCol, int player) {
+    int opponent = player == 1 ? 2 : 1;
+    int r = row + dRow;
+    int c = col + dCol;
+    int count = 0;
+
+    while (r >= 0 && r < boardSize && c >= 0 && c < boardSize) {
+      if (board[r][c] == opponent) {
+        count++;
+      } else {
+        break;
+      }
+      r += dRow;
+      c += dCol;
     }
-    
-    return flips;
+
+    return count;
   }
 
-  void flipStones(int row, int col, int dRow, int dCol) {
-    if (!canFlip(row, col, dRow, dCol)) return;
-    
-    int newRow = row + dRow;
-    int newCol = col + dCol;
-    
-    while (board[newRow][newCol] != currentPlayer) {
-      board[newRow][newCol] = currentPlayer;
-      newRow += dRow;
-      newCol += dCol;
+  List<List<int>> _copyBoard() {
+    return List.generate(
+      boardSize,
+      (i) => List.generate(boardSize, (j) => board[i][j]),
+    );
+  }
+
+  void _makeTempMove(List<List<int>> tempBoard, int row, int col, int player) {
+    tempBoard[row][col] = player;
+    _flipPiecesOnBoard(tempBoard, row, col, player);
+  }
+
+  void _flipPiecesOnBoard(List<List<int>> tempBoard, int row, int col, int player) {
+    final directions = [
+      [-1, -1], [-1, 0], [-1, 1],
+      [0, -1],           [0, 1],
+      [1, -1],  [1, 0],  [1, 1],
+    ];
+
+    for (final direction in directions) {
+      if (_canFlipOnBoard(tempBoard, row, col, direction[0], direction[1], player)) {
+        _flipInDirectionOnBoard(tempBoard, row, col, direction[0], direction[1], player);
+      }
     }
   }
 
-  bool hasValidMoves() {
+  bool _canFlipOnBoard(List<List<int>> tempBoard, int row, int col, int dRow, int dCol, int player) {
+    int opponent = player == 1 ? 2 : 1;
+    int r = row + dRow;
+    int c = col + dCol;
+    bool hasOpponent = false;
+
+    while (r >= 0 && r < boardSize && c >= 0 && c < boardSize) {
+      if (tempBoard[r][c] == opponent) {
+        hasOpponent = true;
+      } else if (tempBoard[r][c] == player) {
+        return hasOpponent;
+      } else {
+        break;
+      }
+      r += dRow;
+      c += dCol;
+    }
+    return false;
+  }
+
+  void _flipInDirectionOnBoard(List<List<int>> tempBoard, int row, int col, int dRow, int dCol, int player) {
+    int opponent = player == 1 ? 2 : 1;
+    int r = row + dRow;
+    int c = col + dCol;
+
+    while (r >= 0 && r < boardSize && c >= 0 && c < boardSize) {
+      if (tempBoard[r][c] == opponent) {
+        tempBoard[r][c] = player;
+      } else {
+        break;
+      }
+      r += dRow;
+      c += dCol;
+    }
+  }
+
+  int _minimax(List<List<int>> tempBoard, int depth, bool isMaximizing, int alpha, int beta) {
+    if (depth == 0) {
+      return _evaluateBoard(tempBoard);
+    }
+
+    List<List<int>> validMoves = _getValidMoves(tempBoard, isMaximizing ? 2 : 1);
+
+    if (validMoves.isEmpty) {
+      return _evaluateBoard(tempBoard);
+    }
+
+    if (isMaximizing) {
+      int maxScore = -1000;
+      for (final move in validMoves) {
+        List<List<int>> newBoard = _copyBoard();
+        _makeTempMove(newBoard, move[0], move[1], 2);
+        int score = _minimax(newBoard, depth - 1, false, alpha, beta);
+        maxScore = max(maxScore, score);
+        alpha = max(alpha, score);
+        if (beta <= alpha) break;
+      }
+      return maxScore;
+    } else {
+      int minScore = 1000;
+      for (final move in validMoves) {
+        List<List<int>> newBoard = _copyBoard();
+        _makeTempMove(newBoard, move[0], move[1], 1);
+        int score = _minimax(newBoard, depth - 1, true, alpha, beta);
+        minScore = min(minScore, score);
+        beta = min(beta, score);
+        if (beta <= alpha) break;
+      }
+      return minScore;
+    }
+  }
+
+  List<List<int>> _getValidMoves(List<List<int>> tempBoard, int player) {
+    List<List<int>> validMoves = [];
     for (int i = 0; i < boardSize; i++) {
       for (int j = 0; j < boardSize; j++) {
-        if (isValidMove(i, j)) return true;
+        if (_isValidMoveOnBoard(tempBoard, i, j, player)) {
+          validMoves.add([i, j]);
+        }
+      }
+    }
+    return validMoves;
+  }
+
+  bool _isValidMoveOnBoard(List<List<int>> tempBoard, int row, int col, int player) {
+    if (tempBoard[row][col] != 0) return false;
+
+    final directions = [
+      [-1, -1], [-1, 0], [-1, 1],
+      [0, -1],           [0, 1],
+      [1, -1],  [1, 0],  [1, 1],
+    ];
+
+    for (final direction in directions) {
+      if (_canFlipOnBoard(tempBoard, row, col, direction[0], direction[1], player)) {
+        return true;
       }
     }
     return false;
   }
 
-  void resetGame() {
-    setState(() {
-      board = List.generate(
-        boardSize,
-        (i) => List.generate(boardSize, (j) => 0),
-      );
-      currentPlayer = 1;
-      gameOver = false;
-      winner = '';
-      initializeBoard();
-      updateScores();
-    });
-  }
+  int _evaluateBoard(List<List<int>> tempBoard) {
+    int blackCount = 0;
+    int whiteCount = 0;
 
-  void _showGameEndAds() {
-    Future.delayed(const Duration(milliseconds: 1000), () async {
-      // まずインタースティシャル広告を表示
-      if (AdManager.shouldShowAds && AdManager.isInterstitialAdReady) {
-        await AdManager.showInterstitialAd();
-      }
-      
-      // その後リワード広告ダイアログを表示
-      _showRewardedAdDialog();
-    });
-  }
-
-  void _showRewardedAdDialog() {
-    if (!AdManager.shouldShowAds) return;
-    
-    showDialog(
-      context: context,
-      barrierDismissible: false, // ダイアログ外タップで閉じない
-      builder: (context) => AlertDialog(
-        title: const Text('リワード広告'),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('リワード広告を見ると、今日は広告が表示されなくなります。'),
-            SizedBox(height: 16),
-            Text(
-              '広告を見ますか？',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('キャンセル'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _showRewardedAd();
-            },
-            child: const Text('広告を見る'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _showRewardedAd() async {
-    try {
-      final rewardEarned = await AdManager.showRewardedAd();
-      if (rewardEarned) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('今日は広告が表示されません！')),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('広告の視聴に失敗しました。')),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('エラーが発生しました: $e')),
-      );
-    }
-  }
-
-  void _showHint() {
-    if (!widget.isNPC || gameOver) return;
-    bool isPlayerTurn = (widget.playerGoesFirst && currentPlayer == 1) || 
-                       (!widget.playerGoesFirst && currentPlayer == 2);
-    if (!isPlayerTurn) return;
-    
-    // リワード広告を表示してヒントを提供
-    _showHintRewardedAd();
-  }
-
-  void _showHintRewardedAd() async {
-    print('_showHintRewardedAd called');
-    
-    if (!AdManager.isRewardedAdReady) {
-      print('Rewarded ad not ready');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('リワード広告の準備中です。しばらく待ってから再度お試しください。'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-      return;
-    }
-
-    print('Showing rewarded ad...');
-    bool rewardEarned = await AdManager.showRewardedAd();
-    print('Reward earned: $rewardEarned');
-    
-    if (rewardEarned) {
-      // リワード獲得時、ヒントを表示
-      print('Calling _displayHint...');
-      _displayHint();
-    } else {
-      print('Reward not earned');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('リワード広告を最後まで視聴してください。'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
-  }
-
-  void _displayHint() {
-    print('_displayHint called');
-    
-    // 最善手を計算
-    List<List<int>> validMoves = [];
     for (int i = 0; i < boardSize; i++) {
       for (int j = 0; j < boardSize; j++) {
-        if (isValidMove(i, j)) {
-          validMoves.add([i, j]);
+        if (tempBoard[i][j] == 1) {
+          blackCount++;
+        } else if (tempBoard[i][j] == 2) {
+          whiteCount++;
         }
       }
     }
-    
-    print('Valid moves count: ${validMoves.length}');
-    
-    if (validMoves.isEmpty) {
-      print('No valid moves found');
-      return;
-    }
-    
-    List<int> bestMove = _selectStrategicMove(validMoves);
-    print('Best move: $bestMove');
-    
-    setState(() {
-      _hintMove = bestMove;
-    });
-    
-    print('Hint move set: $_hintMove');
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('リワード広告を視聴しました！最適な一手を赤色で表示しています'),
-        duration: Duration(seconds: 3),
-      ),
-    );
-    
-    // 5秒後にヒントを消す（リワード広告視聴の報酬なので少し長めに）
-    Future.delayed(const Duration(seconds: 5), () {
-      if (mounted) {
-        setState(() {
-          _hintMove = null;
-        });
-        print('Hint cleared after 5 seconds');
-      }
-    });
+
+    return whiteCount - blackCount; // AIは白なので、白が多いほど良い
   }
 
-  String _getDifficultyName() {
-    switch (widget.difficulty) {
-      case 1: return '超初心者';
-      case 2: return '初心者';
-      case 3: return '初級';
-      case 4: return '初級+';
-      case 5: return '中級';
-      case 6: return '中級+';
-      case 7: return '上級';
-      case 8: return '上級+';
-      case 9: return 'エキスパート';
-      case 10: return 'マスター';
-      default: return '中級';
+  void _checkGameOver() {
+    bool hasValidMoves = false;
+    for (int i = 0; i < boardSize; i++) {
+      for (int j = 0; j < boardSize; j++) {
+        if (_isValidMove(i, j, currentPlayer)) {
+          hasValidMoves = true;
+          break;
+        }
+      }
+      if (hasValidMoves) break;
     }
+
+    if (!hasValidMoves) {
+      // パスの場合、相手の手番をチェック
+      int nextPlayer = currentPlayer == 1 ? 2 : 1;
+      bool nextPlayerHasValidMoves = false;
+      
+      for (int i = 0; i < boardSize; i++) {
+        for (int j = 0; j < boardSize; j++) {
+          if (_isValidMove(i, j, nextPlayer)) {
+            nextPlayerHasValidMoves = true;
+            break;
+          }
+        }
+        if (nextPlayerHasValidMoves) break;
+      }
+
+      if (!nextPlayerHasValidMoves) {
+        // ゲーム終了
+        gameOver = true;
+        _calculateScores();
+        _determineWinner();
+      } else {
+        // パス
+        currentPlayer = nextPlayer;
+        if (widget.isNPC && currentPlayer == 2) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _makeAIMove();
+          });
+        }
+      }
+    }
+  }
+
+  void _determineWinner() {
+    if (blackScore > whiteScore) {
+      gameResult = '黒の勝ち！';
+    } else if (whiteScore > blackScore) {
+      gameResult = '白の勝ち！';
+    } else {
+      gameResult = '引き分け！';
+    }
+    
+    // ゲーム終了時にランキングを保存
+    _saveGameResult();
+  }
+
+  void _saveGameResult() async {
+    // プレイヤー名を取得（簡易版）
+    String playerName = 'プレイヤー';
+    // 勝者を判定
+    bool playerWon = false;
+    if (widget.isNPC) {
+      // AI対戦の場合、プレイヤーは黒なので黒の勝ちがプレイヤーの勝ち
+      playerWon = blackScore > whiteScore;
+    } else {
+      // 二人プレイの場合、黒の勝ちを記録
+      playerWon = blackScore > whiteScore;
+    }
+    // スコアを決定（勝者のスコア）
+    int finalScore = playerWon ? blackScore : whiteScore;
+    final entry = RankingEntry(
+      playerName: playerName,
+      score: finalScore,
+      difficulty: widget.difficulty,
+      isNPC: widget.isNPC,
+      date: DateTime.now(),
+      playerWon: playerWon,
+    );
+    // ローカルランキングに保存
+    await RankingManager.saveLocalRanking(entry);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.isNPC 
-          ? 'オセロゲーム (AI: ${_getDifficultyName()})' 
-          : 'オセロゲーム (二人プレイ)'),
+        title: Text(widget.isNPC ? 'NPC対戦 (難易度: ${widget.difficulty})' : '二人プレイ'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          // ヒントボタン（AI対戦時のみ表示）
-          if (widget.isNPC && !gameOver && 
-              ((widget.playerGoesFirst && currentPlayer == 1) || 
-               (!widget.playerGoesFirst && currentPlayer == 2)))
-            IconButton(
-              icon: const Icon(Icons.lightbulb_outline),
-              onPressed: _showHint,
-              tooltip: 'リワード広告を視聴してヒントを表示',
-            ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: resetGame,
-            tooltip: 'リセット',
-          ),
-          IconButton(
-            icon: const Icon(Icons.home),
-            onPressed: () => Navigator.pop(context),
-            tooltip: 'ホーム',
-          ),
-        ],
       ),
       body: Column(
         children: [
           // スコア表示
           Container(
             padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.grey[50],
-              border: Border(
-                bottom: BorderSide(color: Colors.grey[300]!, width: 1),
-              ),
-            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
@@ -1637,36 +1018,96 @@ class _OthelloGameState extends State<OthelloGame> {
             ),
           ),
           
-          // 現在のプレイヤー表示
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text(
-              gameOver ? winner : '現在のプレイヤー: ${currentPlayer == 1 ? "黒" : "白"}',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-          ),
-          
-          // オセロボード
+          // ゲームボード
           Expanded(
             child: Center(
               child: Container(
-                margin: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.brown, width: 2),
-                  color: Colors.green[800],
-                ),
-                child: GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: boardSize,
-                  ),
-                  itemCount: boardSize * boardSize,
-                  itemBuilder: (context, index) {
-                    int row = index ~/ boardSize;
-                    int col = index % boardSize;
-                    return _buildCell(row, col);
-                  },
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (gameOver)
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.amber),
+                        ),
+                        child: Text(
+                          gameResult,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.amber,
+                          ),
+                        ),
+                      ),
+                    
+                    // ボード
+                    Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.brown, width: 2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        children: List.generate(boardSize, (i) {
+                          return Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: List.generate(boardSize, (j) {
+                              return GestureDetector(
+                                onTap: () {
+                                  if (!gameOver && _isValidMove(i, j, currentPlayer)) {
+                                    setState(() {
+                                      _makeMove(i, j);
+                                    });
+                                  }
+                                },
+                                child: Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    color: _getCellColor(i, j),
+                                    border: Border.all(color: Colors.brown),
+                                  ),
+                                  child: _buildPiece(i, j),
+                                ),
+                              );
+                            }),
+                          );
+                        }),
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 16),
+                    
+                    // 現在のプレイヤー表示
+                    if (!gameOver)
+                      Text(
+                        '現在のプレイヤー: ${currentPlayer == 1 ? "黒" : "白"}',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    
+                    const SizedBox(height: 16),
+                    
+                    // リセットボタン
+                    ElevatedButton(
+                      onPressed: () {
+                        setState(() {
+                          _initializeBoard();
+                          currentPlayer = 1;
+                          gameOver = false;
+                          gameResult = '';
+                          _calculateScores();
+                        });
+                      },
+                      child: const Text('リセット'),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -1677,45 +1118,29 @@ class _OthelloGameState extends State<OthelloGame> {
   }
 
   Widget _buildScoreCard(String player, int score, Color color) {
-    // 白の場合は背景色とテキスト色を調整して見やすくする
-    Color backgroundColor = color == Colors.white 
-        ? Colors.grey[100]! 
-        : color.withOpacity(0.1);
-    Color textColor = color == Colors.white 
-        ? Colors.black 
-        : color;
-    
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: backgroundColor,
+        color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color, width: 2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 4,
-            offset: const Offset(2, 2),
-          ),
-        ],
+        border: Border.all(color: color),
       ),
       child: Column(
         children: [
           Text(
             player,
             style: TextStyle(
-              fontSize: 18,
+              fontSize: 16,
               fontWeight: FontWeight.bold,
-              color: textColor,
+              color: color,
             ),
           ),
-          const SizedBox(height: 4),
           Text(
-            '$score',
+            score.toString(),
             style: TextStyle(
-              fontSize: 28,
+              fontSize: 24,
               fontWeight: FontWeight.bold,
-              color: textColor,
+              color: color,
             ),
           ),
         ],
@@ -1723,120 +1148,28 @@ class _OthelloGameState extends State<OthelloGame> {
     );
   }
 
-  Widget _buildCell(int row, int col) {
-    int cellValue = board[row][col];
-    bool isValid = isValidMove(row, col);
-    bool isNPCTurn = widget.isNPC && 
-                     ((widget.playerGoesFirst && currentPlayer == 2) || 
-                      (!widget.playerGoesFirst && currentPlayer == 1));
-    bool isHint = _hintMove != null && _hintMove![0] == row && _hintMove![1] == col;
-    
-    // デバッグ用：ヒントが設定されている場合のみログ出力
-    if (_hintMove != null && row == 0 && col == 0) {
-      print('Building cell at (0,0), hint move: $_hintMove, isHint: $isHint');
+  Color _getCellColor(int row, int col) {
+    if (_isValidMove(row, col, currentPlayer)) {
+      return Colors.green.withOpacity(0.3);
     }
-    
-    return GestureDetector(
-      onTap: (gameOver || isNPCTurn) ? null : () {
-        setState(() {
-          makeMove(row, col);
-        });
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.brown, width: 1),
-          color: isValid ? Colors.green[600] : Colors.green[800],
-        ),
-        child: Center(
-          child: cellValue == 0
-              ? (isHint
-                  ? Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        color: Colors.red.withOpacity(0.8),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.redAccent, width: 3),
-                      ),
-                    )
-                  : (isValid ? _buildHintDot() : null))
-              : _buildStone(cellValue),
-        ),
-      ),
-    );
+    return Colors.green.shade100;
   }
 
-  Widget _buildStone(int player) {
+  Widget _buildPiece(int row, int col) {
+    if (board[row][col] == 0) {
+      return Container();
+    }
+    
     return Container(
-      width: 40,
-      height: 40,
+      margin: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: player == 1 ? Colors.black : Colors.white,
+        color: board[row][col] == 1 ? Colors.black : Colors.white,
         shape: BoxShape.circle,
         border: Border.all(
-          color: player == 1 ? Colors.grey[800]! : Colors.grey[400]!,
-          width: 2,
+          color: Colors.grey,
+          width: 1,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.3),
-            blurRadius: 4,
-            offset: const Offset(2, 2),
-          ),
-        ],
       ),
     );
   }
-
-  Widget _buildHintDot() {
-    return Container(
-      width: 8,
-      height: 8,
-      decoration: BoxDecoration(
-        color: Colors.yellow.withOpacity(0.7),
-        shape: BoxShape.circle,
-      ),
-    );
-  }
-
-  void _saveGameResult() async {
-    // プレイヤー名を取得（簡易版）
-    String playerName = 'プレイヤー';
-    // 勝者を判定
-    bool playerWon = false;
-    if (widget.isNPC) {
-      // AI対戦の場合
-      if (widget.playerGoesFirst) {
-        // プレイヤーが黒の場合
-        playerWon = blackScore > whiteScore;
-      } else {
-        // プレイヤーが白の場合
-        playerWon = whiteScore > blackScore;
-      }
-    } else {
-      // 二人プレイの場合、黒の勝ちを記録
-      playerWon = blackScore > whiteScore;
-    }
-    // スコアを決定（勝者のスコア）
-    int finalScore = playerWon 
-        ? (widget.playerGoesFirst ? blackScore : whiteScore)
-        : (widget.playerGoesFirst ? whiteScore : blackScore);
-    final entry = RankingEntry(
-      playerName: playerName,
-      score: finalScore,
-      difficulty: widget.difficulty,
-      isNPC: widget.isNPC,
-      date: DateTime.now(),
-      playerWon: playerWon,
-    );
-    // ローカルランキングのみ保存
-    await RankingManager.saveLocalRanking(entry);
-  }
-}
-
-class MoveScore {
-  final List<int> move;
-  final double score;
-
-  MoveScore(this.move, this.score);
 } 
