@@ -103,7 +103,7 @@ class AdManager {
     }
     
     if (defaultTargetPlatform == TargetPlatform.android) {
-      return 'ca-app-pub-8148356110096114/2284859273'; // Android banner
+      return 'ca-app-pub-8148356110096114/7896973138'; // Android banner
     } else if (defaultTargetPlatform == TargetPlatform.iOS) {
       return 'ca-app-pub-8148356110096114/8259370564'; // iOS banner
     }
@@ -139,7 +139,7 @@ class AdManager {
     }
     
     if (defaultTargetPlatform == TargetPlatform.android) {
-      return 'ca-app-pub-8148356110096114/7122252983'; // Android rewarded
+      return 'ca-app-pub-8148356110096114/9551167282'; // Android rewarded
     } else if (defaultTargetPlatform == TargetPlatform.iOS) {
       return 'ca-app-pub-8148356110096114/9415721322'; // iOS rewarded
     }
@@ -253,91 +253,76 @@ class AdManager {
   static RewardedAd? _rewardedAd;
   static bool _isRewardedAdReady = false;
 
+  // ヒント機能用のリワード広告ユニットID（本番用）
+  static const String _rewardedAdUnitId = 'ca-app-pub-8148356110096114/9415721322';
+
+  // リワード広告を読み込み
   static Future<void> loadRewardedAd() async {
-    if (kIsWeb) {
-      _isRewardedAdReady = true; // Dummy for web
-      return;
+    if (kIsWeb) return;
+
+    try {
+      await RewardedAd.load(
+        adUnitId: _rewardedAdUnitId,
+        request: const AdRequest(),
+        rewardedAdLoadCallback: RewardedAdLoadCallback(
+          onAdLoaded: (ad) {
+            _rewardedAd = ad;
+            _isRewardedAdReady = true;
+            print('Rewarded ad loaded successfully');
+          },
+          onAdFailedToLoad: (error) {
+            _rewardedAd = null;
+            _isRewardedAdReady = false;
+            print('Rewarded ad failed to load: $error');
+          },
+        ),
+      );
+    } catch (e) {
+      print('Error loading rewarded ad: $e');
     }
-    
-    await RewardedAd.load(
-      adUnitId: rewardedAdUnitId,
-      request: const AdRequest(),
-      rewardedAdLoadCallback: RewardedAdLoadCallback(
-        onAdLoaded: (ad) {
-          _rewardedAd = ad;
-          _isRewardedAdReady = true;
-          print('Rewarded ad loaded successfully');
-        },
-        onAdFailedToLoad: (error) {
-          _rewardedAd = null;
-          _isRewardedAdReady = false;
-          print('Rewarded ad failed to load: $error');
-        },
-      ),
-    );
   }
 
-  static bool get isRewardedAdReady => _isRewardedAdReady;
-
+  // リワード広告を表示
   static Future<bool> showRewardedAd() async {
-    print('AdManager.showRewardedAd called');
-    
-    if (kIsWeb) {
-      print('Web platform - returning dummy reward');
-      // Dummy reward for web
-      await Future.delayed(const Duration(seconds: 2));
-      await markRewardedAdWatched();
-      return true;
-    }
-    
-    print('Rewarded ad ready: $_isRewardedAdReady, ad exists: ${_rewardedAd != null}');
-    
-    if (!_isRewardedAdReady || _rewardedAd == null) {
-      print('Rewarded ad not ready or null');
+    if (kIsWeb || !_isRewardedAdReady || _rewardedAd == null) {
       return false;
     }
 
-    Completer<bool> rewardCompleter = Completer<bool>();
-    
-    print('Showing rewarded ad...');
-    await _rewardedAd!.show(
-      onUserEarnedReward: (_, reward) {
-        print('User earned reward: ${reward.amount} ${reward.type}');
-        if (!rewardCompleter.isCompleted) {
-          rewardCompleter.complete(true);
-        }
-      },
-    );
-
-    _rewardedAd = null;
-    _isRewardedAdReady = false;
-    
-    // リワード広告の結果を待つ（タイムアウト付き）
-    bool rewardEarned = false;
     try {
-      rewardEarned = await rewardCompleter.future.timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          print('Rewarded ad timeout - assuming not earned');
-          return false;
+      bool rewardEarned = false;
+      
+      // 広告を表示（広告が閉じられるまで待機）
+      await _rewardedAd!.show(
+        onUserEarnedReward: (_, reward) {
+          rewardEarned = true;
+          print('User earned reward: ${reward.amount} ${reward.type}');
         },
       );
+
+      // 広告を破棄して新しい広告を読み込み
+      _rewardedAd!.dispose();
+      _rewardedAd = null;
+      _isRewardedAdReady = false;
+      
+      // 新しい広告を読み込み
+      loadRewardedAd();
+
+      print('Rewarded ad closed, returning reward status: $rewardEarned');
+      return rewardEarned;
     } catch (e) {
-      print('Error waiting for reward: $e');
-      rewardEarned = false;
+      print('Error showing rewarded ad: $e');
+      return false;
     }
-    print('Reward earned: $rewardEarned');
-    
-    // リワード広告視聴完了を記録
-    if (rewardEarned) {
-      await markRewardedAdWatched();
-      print('Rewarded ad marked as watched');
-    }
-    
-    // Load the next ad
-    loadRewardedAd();
-    
-    return rewardEarned;
+  }
+
+  // リワード広告の準備状況を確認
+  static bool get isRewardedAdReady => _isRewardedAdReady;
+
+  // 広告を破棄
+  static void dispose() {
+    _rewardedAd?.dispose();
+    _rewardedAd = null;
+    _isRewardedAdReady = false;
   }
 
   // ゲーム開始カウントを更新
@@ -366,11 +351,6 @@ class AdManager {
   static bool get shouldShowInterstitialOnGameStart {
     if (kIsWeb) return false;
     return _gameStartCount >= 5 && shouldShowAds;
-  }
-
-  static void dispose() {
-    _rewardedAd?.dispose();
-    _interstitialAd?.dispose();
   }
 
   // IDFA関連のメソッド
