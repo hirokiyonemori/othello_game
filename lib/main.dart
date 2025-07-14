@@ -116,6 +116,29 @@ void main() async {
   runApp(const OthelloApp());
 }
 
+// 縦画面のみに制限するミックスイン
+mixin PortraitModeMixin<T extends StatefulWidget> on State<T> {
+  @override
+  void initState() {
+    super.initState();
+    // 強制的に縦画面のみに制限
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+      ]);
+    });
+  }
+
+  @override
+  void dispose() {
+    // アプリ終了時も縦画面のみを維持
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+    ]);
+    super.dispose();
+  }
+}
+
 class OthelloApp extends StatelessWidget {
   const OthelloApp({super.key});
 
@@ -129,6 +152,13 @@ class OthelloApp extends StatelessWidget {
         useMaterial3: true,
       ),
       home: const GameModeSelection(),
+      builder: (context, child) {
+        // アプリ全体で縦画面のみに制限
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+        ]);
+        return child!;
+      },
     );
   }
 }
@@ -140,7 +170,7 @@ class GameModeSelection extends StatefulWidget {
   State<GameModeSelection> createState() => _GameModeSelectionState();
 }
 
-class _GameModeSelectionState extends State<GameModeSelection> {
+class _GameModeSelectionState extends State<GameModeSelection> with PortraitModeMixin {
   void _navigateToGame(bool isNPC) {
     if (isNPC) {
       Navigator.push(
@@ -278,7 +308,7 @@ class DifficultySelection extends StatefulWidget {
   State<DifficultySelection> createState() => _DifficultySelectionState();
 }
 
-class _DifficultySelectionState extends State<DifficultySelection> {
+class _DifficultySelectionState extends State<DifficultySelection> with PortraitModeMixin {
   int _selectedDifficulty = 1;
   int _handicapLevel = 0;
   int _selectedPlayer = 1; // 1: 黒（先手）, 2: 白（後手）
@@ -634,7 +664,7 @@ class RankingScreen extends StatefulWidget {
   State<RankingScreen> createState() => _RankingScreenState();
 }
 
-class _RankingScreenState extends State<RankingScreen> {
+class _RankingScreenState extends State<RankingScreen> with PortraitModeMixin {
   List<RankingEntry> _localRankings = [];
   bool _isLoading = true;
 
@@ -836,7 +866,7 @@ class OthelloGame extends StatefulWidget {
   State<OthelloGame> createState() => _OthelloGameState();
 }
 
-class _OthelloGameState extends State<OthelloGame> {
+class _OthelloGameState extends State<OthelloGame> with PortraitModeMixin {
   static const int boardSize = 8;
   late List<List<int>> board;
   int currentPlayer = 1; // 1: 黒, 2: 白
