@@ -910,6 +910,11 @@ class _OthelloGameState extends State<OthelloGame> with PortraitModeMixin {
         _makeAIMove();
       });
     }
+    
+    // バナー広告の初期化
+    if (!kIsWeb && AdManager.shouldShowAds) {
+      AdManager.createBannerAd().load();
+    }
   }
 
   @override
@@ -1637,6 +1642,13 @@ class _OthelloGameState extends State<OthelloGame> with PortraitModeMixin {
               ],
             ),
           ),
+          
+          // バナー広告
+          if (AdManager.shouldShowAds) // 広告を表示する日のみ表示
+            Container(
+              height: 50,
+              child: AdWidget(ad: AdManager.createBannerAd()),
+            ),
         ],
       ),
     );
