@@ -354,10 +354,10 @@ class _DifficultySelectionState extends State<DifficultySelection> with Portrait
                       runSpacing: 4,
                       children: [
                         _buildHandicapChip('なし', 0, Colors.grey),
-                        _buildHandicapChip('レベル1', 1, Colors.blue),
-                        _buildHandicapChip('レベル2', 2, Colors.orange),
-                        _buildHandicapChip('レベル3', 3, Colors.red),
-                        _buildHandicapChip('レベル4', 4, Colors.purple),
+                        _buildHandicapChip('端1個', 1, Colors.blue),
+                        _buildHandicapChip('端2個', 2, Colors.orange),
+                        _buildHandicapChip('端3個', 3, Colors.red),
+                        _buildHandicapChip('角配置', 4, Colors.purple),
                       ],
                     ),
                   ],
@@ -637,13 +637,13 @@ class _DifficultySelectionState extends State<DifficultySelection> with Portrait
       case 0:
         return 'ハンデキャップなし。通常の対戦です。';
       case 1:
-        return 'プレイヤーが先手になります。';
+        return 'プレイヤーが先手で、端にプレイヤーのコマが1個配置されます。';
       case 2:
-        return 'プレイヤーが先手で、AIの思考時間が少し長くなります。';
+        return 'プレイヤーが先手で、端にプレイヤーのコマが2個配置されます。';
       case 3:
-        return 'プレイヤーが先手で、AIの難易度が1段階下がります。';
+        return 'プレイヤーが先手で、端にプレイヤーのコマが3個配置されます。';
       case 4:
-        return 'プレイヤーが先手で、角に黒のコマが初期配置されます。';
+        return 'プレイヤーが先手で、角にプレイヤーのコマが初期配置されます。';
       default:
         return 'ハンデキャップなし。通常の対戦です。';
     }
@@ -931,12 +931,36 @@ class _OthelloGameState extends State<OthelloGame> with PortraitModeMixin {
     board[center][center - 1] = 1;     // 黒
     board[center][center] = 2;         // 白
     
-    // ハンデキャップレベル4の場合、角に黒のコマを配置
-    if (widget.handicapLevel == 4) {
-      board[0][0] = 1; // 左上角
-      board[0][boardSize - 1] = 1; // 右上角
-      board[boardSize - 1][0] = 1; // 左下角
-      board[boardSize - 1][boardSize - 1] = 1; // 右下角
+    // ハンデキャップレベルに応じてプレイヤーのコマを追加配置
+    if (widget.handicapLevel >= 1 && widget.handicapLevel <= 3) {
+      _addEdgePlayerPieces(widget.handicapLevel);
+    } else if (widget.handicapLevel == 4) {
+      // レベル4の場合、角にプレイヤーのコマを配置
+      board[0][0] = widget.playerColor; // 左上角
+      board[0][boardSize - 1] = widget.playerColor; // 右上角
+      board[boardSize - 1][0] = widget.playerColor; // 左下角
+      board[boardSize - 1][boardSize - 1] = widget.playerColor; // 右下角
+    }
+  }
+
+  void _addEdgePlayerPieces(int level) {
+    // 端の位置リスト（角以外）
+    List<List<int>> edgePositions = [
+      [0, 1], [0, 2], [0, 5], [0, 6], // 上辺
+      [1, 0], [2, 0], [5, 0], [6, 0], // 左辺
+      [1, 7], [2, 7], [5, 7], [6, 7], // 右辺
+      [7, 1], [7, 2], [7, 5], [7, 6], // 下辺
+    ];
+    
+    // ランダムに選択して配置
+    edgePositions.shuffle();
+    for (int i = 0; i < level && i < edgePositions.length; i++) {
+      int row = edgePositions[i][0];
+      int col = edgePositions[i][1];
+      // 既にコマが置かれていない場合のみ配置
+      if (board[row][col] == 0) {
+        board[row][col] = widget.playerColor; // プレイヤーの色
+      }
     }
   }
 
@@ -1124,14 +1148,8 @@ class _OthelloGameState extends State<OthelloGame> with PortraitModeMixin {
   }
 
   int _getAdjustedDifficulty() {
-    int baseDifficulty = widget.difficulty;
-    
-    // ハンデキャップレベル3の場合、AI難易度を1段階下げる
-    if (widget.handicapLevel == 3) {
-      return (baseDifficulty - 1).clamp(1, 10);
-    }
-    
-    return baseDifficulty;
+    // ハンデキャップレベルに関係なく、設定された難易度を使用
+    return widget.difficulty;
   }
 
   List<int> _selectMoveByDifficulty(List<List<int>> validMoves, double randomChance) {
