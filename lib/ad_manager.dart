@@ -94,21 +94,14 @@ class AdManager {
   }
 
   static String get bannerAdUnitId {
-    if (kIsWeb) {
-      return 'ca-app-pub-3940256099942544/6300978111'; // Web test ad
-    }
-    
-    if (kDebugMode) {
-      return 'ca-app-pub-3940256099942544/6300978111'; // Test ad unit ID
-    }
-    
+    // 本番用IDのみ返す
     if (defaultTargetPlatform == TargetPlatform.android) {
       return 'ca-app-pub-8148356110096114/7896973138'; // Android banner
     } else if (defaultTargetPlatform == TargetPlatform.iOS) {
       return 'ca-app-pub-8148356110096114/8259370564'; // iOS banner
     }
-    
-    return 'ca-app-pub-3940256099942544/6300978111'; // Default test ad
+    // その他はデフォルトでiOS本番ID
+    return 'ca-app-pub-8148356110096114/8259370564';
   }
 
   static String get interstitialAdUnitId {

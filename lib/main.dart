@@ -171,6 +171,23 @@ class GameModeSelection extends StatefulWidget {
 }
 
 class _GameModeSelectionState extends State<GameModeSelection> with PortraitModeMixin {
+  BannerAd? _bannerAd;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!kIsWeb && AdManager.shouldShowAds) {
+      _bannerAd = AdManager.createBannerAd();
+      _bannerAd!.load();
+    }
+  }
+
+  @override
+  void dispose() {
+    _bannerAd?.dispose();
+    super.dispose();
+  }
+
   void _navigateToGame(bool isNPC) {
     if (isNPC) {
       Navigator.push(
@@ -196,28 +213,31 @@ class _GameModeSelectionState extends State<GameModeSelection> with PortraitMode
         title: const Text('シンプルオセロ'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text(
-              'プレイモードを選択してください',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 40),
-            _buildModeButton(
-              context,
-              '二人プレイ',
-              '友達と一緒にプレイ',
-              Icons.people,
-              Colors.blue,
-              () => _navigateToGame(false),
-            ),
-            const SizedBox(height: 20),
-                              _buildModeButton(
+      body: Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text(
+                    'プレイモードを選択してください',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 40),
+                  _buildModeButton(
+                    context,
+                    '二人プレイ',
+                    '友達と一緒にプレイ',
+                    Icons.people,
+                    Colors.blue,
+                    () => _navigateToGame(false),
+                  ),
+                  const SizedBox(height: 20),
+                  _buildModeButton(
                     context,
                     'NPCプレイ',
                     'AIと対戦（難易度選択）',
@@ -239,8 +259,16 @@ class _GameModeSelectionState extends State<GameModeSelection> with PortraitMode
                       ),
                     ),
                   ),
-          ],
-        ),
+                ],
+              ),
+            ),
+          ),
+          if (AdManager.shouldShowAds && _bannerAd != null)
+            Container(
+              height: 50,
+              child: AdWidget(ad: _bannerAd!),
+            ),
+        ],
       ),
     );
   }
@@ -884,6 +912,9 @@ class _OthelloGameState extends State<OthelloGame> with PortraitModeMixin {
   int? _lastMoveRow;
   int? _lastMoveCol;
 
+  // バナー広告管理
+  BannerAd? _bannerAd;
+
   @override
   void initState() {
     super.initState();
@@ -913,12 +944,14 @@ class _OthelloGameState extends State<OthelloGame> with PortraitModeMixin {
     
     // バナー広告の初期化
     if (!kIsWeb && AdManager.shouldShowAds) {
-      AdManager.createBannerAd().load();
+      _bannerAd = AdManager.createBannerAd();
+      _bannerAd!.load();
     }
   }
 
   @override
   void dispose() {
+    _bannerAd?.dispose();
     AdManager.dispose();
     super.dispose();
   }
@@ -1644,10 +1677,10 @@ class _OthelloGameState extends State<OthelloGame> with PortraitModeMixin {
           ),
           
           // バナー広告
-          if (AdManager.shouldShowAds) // 広告を表示する日のみ表示
+          if (AdManager.shouldShowAds && _bannerAd != null)
             Container(
               height: 50,
-              child: AdWidget(ad: AdManager.createBannerAd()),
+              child: AdWidget(ad: _bannerAd!),
             ),
         ],
       ),
